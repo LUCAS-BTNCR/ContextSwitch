@@ -13,6 +13,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 /// WM_CLOSE = lo mismo que clic en la X. La app decide: si hay cambios sin guardar,
 /// muestra SU diálogo nativo. Nunca TerminateProcess, nunca timeouts que maten.
 pub fn close_gracefully(process_name: &str) -> usize {
+    if never_wm_close(process_name) { minimize(process_name); return 0; }
     let wins = windows_of(process_name);
     for w in &wins {
         unsafe { let _ = PostMessageW(w.hwnd, WM_CLOSE, WPARAM(0), LPARAM(0)); }
@@ -45,10 +46,54 @@ pub fn focus(w: &TopWindow) {
 
 /// `focus` para una ventana identificada solo por su HWND.
 pub fn focus_hwnd(hwnd: windows::Win32::Foundation::HWND) {
-    focus(&TopWindow { hwnd, exe_path: String::new(), process_name: String::new(), title: String::new(), cloaked: false });
+    focus(&TopWindow { hwnd, exe_path: String::new(), process_name: String::new(), title: String::new(), cloaked: false, pid: 0, class_name: String::new() });
+}
+
+/// Apps a las que NUNCA se les manda WM_CLOSE; se minimizan.
+/// Zen: cerrar una ventana borra los Essentials que contiene (los sincroniza entre ventanas
+/// y los cierra uno por uno con ella). Verificado en el SessionStore el 2026-11-19.
+const NEVER_WM_CLOSE: &[&str] = &["zen.exe"];
+
+pub fn never_wm_close(process_name: &str) -> bool {
+    NEVER_WM_CLOSE.iter().any(|p| p.eq_ignore_ascii_case(process_name))
+}
+
+/// Cierra UNA ventana (WM_CLOSE), o la minimiza si es de una app protegida.
+pub fn close_window_of(w: &TopWindow) {
+    unsafe {
+        if never_wm_close(&w.process_name) { let _ = ShowWindowAsync(w.hwnd, SW_MINIMIZE); }
+        else { let _ = PostMessageW(w.hwnd, WM_CLOSE, WPARAM(0), LPARAM(0)); }
+    }
+}
+
+pub fn minimize_hwnd(hwnd: windows::Win32::Foundation::HWND) {
+    unsafe { let _ = ShowWindowAsync(hwnd, SW_MINIMIZE); }
+}
+
+/// Oculta la ventana sin cerrarla: desaparece de la pantalla y de la barra de tareas.
+pub fn hide_hwnd(hwnd: windows::Win32::Foundation::HWND) {
+    use windows::Win32::UI::WindowsAndMessaging::{ShowWindow, SW_HIDE};
+    // Sincrónico: al volver, la ventana ya está oculta (nadie más la puede enfocar en el medio).
+    unsafe { let _ = ShowWindow(hwnd, SW_HIDE); }
+}
+
+/// Vuelve a mostrar una ventana oculta. `minimized`: aparece en la barra sin saltar al frente.
+pub fn unhide_hwnd(hwnd: windows::Win32::Foundation::HWND, minimized: bool) {
+    use windows::Win32::UI::WindowsAndMessaging::{IsWindowVisible, SW_SHOWMINNOACTIVE, SW_SHOWNA};
+    unsafe {
+        if !IsWindowVisible(hwnd).as_bool() {
+            let _ = windows::Win32::UI::WindowsAndMessaging::ShowWindow(hwnd, if minimized { SW_SHOWMINNOACTIVE } else { SW_SHOWNA });
+        }
+    }
 }
 
 pub fn shell_open(target: &str, args: &str) {
+    // Si es un .exe, arranca en SU carpeta (como un acceso directo). Sin esto hereda la
+    // carpeta de ContextSwitch y apps como Steam escriben sus logs/archivos ahí.
+    let dir = std::path::Path::new(target);
+    let workdir = (target.to_ascii_lowercase().ends_with(".exe") && dir.is_file())
+        .then(|| dir.parent().map(|p| HSTRING::from(p.as_os_str())))
+        .flatten();
     unsafe {
         let params = HSTRING::from(args);
         ShellExecuteW(
@@ -56,7 +101,7 @@ pub fn shell_open(target: &str, args: &str) {
             &HSTRING::from("open"),
             &HSTRING::from(target),
             if args.is_empty() { PCWSTR::null() } else { PCWSTR(params.as_ptr()) },
-            PCWSTR::null(),
+            workdir.as_ref().map(|d| PCWSTR(d.as_ptr())).unwrap_or(PCWSTR::null()),
             SW_SHOWNORMAL,
         );
     }

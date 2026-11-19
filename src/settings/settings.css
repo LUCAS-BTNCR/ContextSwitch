@@ -154,3 +154,10 @@ kbd.trigger { background: var(--accent); color: var(--accent-ink); border-color:
 .layout-preview .z3 { fill: #f687b3; stroke: #f687b3; }
 .layout-preview .z4 { fill: #63b3ed; stroke: #63b3ed; }
 .layout-preview .z5 { fill: #d6bcfa; stroke: #d6bcfa; }
+.merge-warn { display: flex; gap: 10px; align-items: center; justify-content: space-between; flex-wrap: wrap; margin-top: 10px; }
+
+.activation-warn { display: flex; gap: 10px; align-items: flex-start; justify-content: space-between; margin: 0 0 14px; }
+.activation-warn ul { margin: 0; padding-left: 18px; }
+
+.status { margin: 0; font-size: 12.5px; padding: 8px 10px; border-radius: 8px; }
+.status.ok { color: var(--ok); background: color-mix(in srgb, var(--ok) 10%, transparent); }

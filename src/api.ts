@@ -9,11 +9,15 @@ export const api = {
   listAudioDevices: () => invoke<AudioDevice[]>("list_audio_devices"),
   listRunningApps: () => invoke<RunningApp[]>("list_running_apps"),
   appIcons: (paths: string[]) => invoke<Record<string, string>>("app_icons", { paths }),
-  listMonitors: () => invoke<MonitorInfo[]>("list_monitors"),
+  zenBridgeConnected: () => invoke<boolean>("zen_bridge_connected"),
+  listMonitors:() => invoke<MonitorInfo[]>("list_monitors"),
   captureLayout: () => invoke<LayoutSnapshot>("capture_layout"),
   undoLayout: () => invoke<boolean>("undo_layout"),
   setTestMode: (on: boolean) => invoke<void>("set_test_mode", { on }),
   activateProfile: (id: string) => invoke<void>("activate_profile", { id }),
-  onChord: (cb: (e: ChordEvent) => void): Promise<UnlistenFn> =>
+  /** Payload del backend: [id del perfil, avisos]. */
+  onActivated: (cb: (e: [string, string[]]) => void): Promise<UnlistenFn> =>
+    listen<[string, string[]]>("profile-activated", (ev) => cb(ev.payload)),
+  onChord:(cb: (e: ChordEvent) => void): Promise<UnlistenFn> =>
     listen<ChordEvent>("chord-detected", (ev) => cb(ev.payload)),
 };

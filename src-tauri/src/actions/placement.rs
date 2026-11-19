@@ -9,7 +9,7 @@ use windows::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_EXTENDED_FRAME_
 use windows::Win32::Graphics::Gdi::{EnumDisplayMonitors, GetMonitorInfoW, HDC, HMONITOR, MONITORINFO};
 use windows::Win32::UI::WindowsAndMessaging::{
     GetWindowRect, IsIconic, IsZoomed, SetWindowPos, ShowWindow, SWP_NOACTIVATE, SWP_NOOWNERZORDER,
-    SWP_NOZORDER, SW_RESTORE,
+    SWP_NOSIZE, SWP_NOZORDER, SW_RESTORE,
 };
 
 #[derive(Debug, Clone, Serialize)]
@@ -87,6 +87,22 @@ pub fn place(hwnd: HWND, r: RECT) {
                 (r.right - r.left) + l + rr, (r.bottom - r.top) + t + b,
                 SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOOWNERZORDER,
             );
+        }
+        // Si la app tiene un ancho/alto mínimo mayor que la zona, queda más grande y se
+        // saldría por la derecha/abajo (p. ej. fuera del monitor): se corre hacia adentro
+        // para que su borde derecho/inferior coincida con el de la zona.
+        let mut fr = RECT::default();
+        if DwmGetWindowAttribute(hwnd, DWMWA_EXTENDED_FRAME_BOUNDS, &mut fr as *mut _ as *mut _,
+                                 std::mem::size_of::<RECT>() as u32).is_ok() {
+            let dx = (fr.right - r.right).max(0);
+            let dy = (fr.bottom - r.bottom).max(0);
+            if dx > 0 || dy > 0 {
+                let mut wr = RECT::default();
+                if GetWindowRect(hwnd, &mut wr).is_ok() {
+                    let _ = SetWindowPos(hwnd, HWND::default(), wr.left - dx, wr.top - dy, 0, 0,
+                                         SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_NOSIZE);
+                }
+            }
         }
     }
 }

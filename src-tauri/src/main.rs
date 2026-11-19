@@ -3,6 +3,7 @@
 mod actions;
 mod hotkey;
 mod profiles;
+mod single_instance;
 
 use hotkey::chord::Fire;
 use hotkey::hook::HookHandle;
@@ -73,8 +74,12 @@ fn app_icons(paths: Vec<String>) -> std::collections::HashMap<String, String> {
         .collect()
 }
 
+/// true si la extensión de Zen está conectada (cs-bridge escuchando en el pipe).
 #[tauri::command]
-fn list_monitors() -> Vec<actions::placement::MonitorInfo> { actions::placement::monitors() }
+fn zen_bridge_connected() -> bool { actions::bridge::wait_ready(1) }
+
+#[tauri::command]
+fn list_monitors()-> Vec<actions::placement::MonitorInfo> { actions::placement::monitors() }
 
 #[tauri::command]
 fn capture_layout() -> LayoutSnapshot {
@@ -212,6 +217,17 @@ fn config_path() -> PathBuf {
 }
 
 fn main() {
+    // Antes que nada: si ya había una instancia, se cierra y esta toma su lugar
+    // (así nunca hay dos hooks de teclado ni dos íconos en la bandeja).
+    let quit_event = single_instance::take_over();
+
+    // `ContextSwitch.exe --activate <id>`: arranca (reemplazando a la instancia anterior)
+    // y activa ese modo. Útil para accesos directos y pruebas.
+    let activate_on_start: Option<String> = {
+        let args: Vec<String> = std::env::args().collect();
+        args.iter().position(|a| a == "--activate").and_then(|i| args.get(i + 1).cloned())
+    };
+
     let path = config_path();
     let config = Config::load(&path).unwrap_or_else(|_| Config::default_config());
     register_zen_host();
@@ -224,8 +240,26 @@ fn main() {
             undo: Mutex::new(None),
             test_mode: AtomicBool::new(false),
         })
-        .setup(|app| {
+        .setup(move |app| {
             let handle = app.handle().clone();
+
+            if let Some(id) = activate_on_start.clone() {
+                let h = handle.clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_millis(800)); // tray + hook listos
+                    actions::ensure_com();
+                    let _ = activate_profile(h, id);
+                });
+            }
+
+            // Si se abre otra instancia, esta se cierra limpia (el ícono de la bandeja se quita).
+            if let Some(ev) = quit_event {
+                let h = handle.clone();
+                std::thread::Builder::new().name("cs-single-instance".into()).spawn(move || {
+                    single_instance::wait_quit(ev);
+                    h.exit(0);
+                })?;
+            }
 
             // Hook + worker: el hook solo envía Fire; el worker ejecuta acciones.
             let (tx, rx) = mpsc::channel::<Fire>();
@@ -245,7 +279,7 @@ fn main() {
                 .tooltip(tray_tooltip(&handle))
                 .menu(&build_menu(&handle)?)
                 .on_menu_event(|app, ev| match ev.id.as_ref() {
-                    "quit" => app.exit(0),
+                    "quit" => { actions::reveal_hidden_windows(); app.exit(0); }
                     "settings" => if let Some(w) = app.get_webview_window("main") { let _ = w.show(); let _ = w.set_focus(); },
                     "undo" => { undo_layout(app.state::<AppState>()); }
                     id if id.starts_with("profile:") => {
@@ -262,7 +296,7 @@ fn main() {
             if let WindowEvent::CloseRequested { api, .. } = ev { api.prevent_close(); let _ = w.hide(); }
         })
         .invoke_handler(tauri::generate_handler![
-            get_config, save_config, list_audio_devices, list_running_apps, app_icons, list_monitors,
+            get_config, save_config, list_audio_devices, list_running_apps, app_icons, list_monitors, zen_bridge_connected,
             capture_layout, undo_layout, set_test_mode, activate_profile
         ])
         .run(tauri::generate_context!())

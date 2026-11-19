@@ -23,6 +23,12 @@ pub enum ZenCommand<'a> {
     },
     #[serde(rename_all = "camelCase")]
     UnloadInactive,
+    /// Marca como "de un modo" las ventanas ya abiertas de esos sitios/contenedor.
+    #[serde(rename_all = "camelCase")]
+    AdoptWindows {
+        container: Option<&'a str>,
+        urls: &'a [String],
+    },
     /// Una ventana nueva por URL, en orden y en el contenedor del workspace.
     #[serde(rename_all = "camelCase")]
     OpenWindows {

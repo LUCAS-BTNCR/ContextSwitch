@@ -20,6 +20,13 @@ export default function App() {
     api.getConfig().then((c) => { setConfig(c); setSelected(c.profiles[0]?.id ?? null); });
   }, []);
 
+  // Avisos de la última activación (ej. una app que no se pudo cerrar).
+  const [warnings, setWarnings] = useState<string[]>([]);
+  useEffect(() => {
+    const off = api.onActivated(([, w]) => setWarnings(w));
+    return () => { off.then((f) => f()); };
+  }, []);
+
   // Autoguardado con debounce: el hook se reconfigura al instante y el área de prueba
   // siempre refleja lo que ves en pantalla.
   const commit = (next: Config) => {
@@ -99,6 +106,12 @@ export default function App() {
       </aside>
 
       <main className="content">
+        {warnings.length > 0 && (
+          <div className="warn activation-warn" role="status">
+            <ul>{warnings.map((w, i) => <li key={i}>{w}</li>)}</ul>
+            <button className="icon-btn" aria-label="Cerrar aviso" onClick={() => setWarnings([])}>✕</button>
+          </div>
+        )}
         {profile ? (
           <SettingsTab
             key={profile.id}

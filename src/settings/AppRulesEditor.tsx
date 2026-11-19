@@ -16,6 +16,23 @@ const hostOf = (url: string) => {
   try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return url; }
 };
 
+/** Une todas las reglas de Zen en la primera, con una ventana por URL (conserva posiciones). */
+export function mergeZenRules(rules: AppRule[]): AppRule[] {
+  const zen = rules.filter((r) => r.kind === "browser-zen");
+  if (zen.length < 2) return rules;
+  const open: string[] = [];
+  const placements: (Placement | null)[] = [];
+  for (const r of zen) {
+    r.open.forEach((url, i) => {
+      open.push(url);
+      // En modo pestañas, placements[0] era la ventana entera: pasa a su primera URL.
+      placements.push((r.separateWindows ? r.placements?.[i] : i === 0 ? r.placements?.[0] : null) ?? null);
+    });
+  }
+  const merged: AppRule = { ...zen[0], open, placements, separateWindows: true };
+  return rules.filter((r) => r.kind !== "browser-zen" || r === zen[0]).map((r) => (r === zen[0] ? merged : r));
+}
+
 /** Qué dibujar en la vista previa: cada ventana con posición fija. */
 function previewItems(rules: AppRule[]): PreviewItem[] {
   const out: PreviewItem[] = [];
@@ -41,7 +58,17 @@ function guessKind(proc: string): AppKind {
   return "generic";
 }
 
-const EXIT_OPTIONS: { value: ExitAction; label: string; hint: string }[] = [
+// Procesos cuya ventana es de un "helper" que no se puede lanzar solo: para abrir la app
+// hay que ejecutar otro exe. La ventana se sigue buscando por el proceso del helper.
+const LAUNCHERS: Record<string, { label: string; from: RegExp; to: string }> = {
+  "steamwebhelper.exe": { label: "Steam", from: /\\bin\\cef\\[^\\]+\\steamwebhelper\.exe$/i, to: "\\steam.exe" },
+};
+function launcherFor(app: RunningApp): string {
+  const l = LAUNCHERS[app.processName.toLowerCase()];
+  return l && l.from.test(app.exePath) ? app.exePath.replace(l.from, l.to) : app.exePath;
+}
+
+const EXIT_OPTIONS:{ value: ExitAction; label: string; hint: string }[] = [
   { value: "keep", label: "Dejar abierto", hint: "No se toca" },
   { value: "minimize", label: "Minimizar / liberar RAM", hint: "En Zen también descarga pestañas" },
   { value: "close", label: "Cerrar pidiendo guardar", hint: "WM_CLOSE: la app muestra su diálogo" },
@@ -68,9 +95,9 @@ export function AppRulesEditor({ rules, onChange }: Props) {
     const kind = guessKind(app.processName);
     onChange([...rules, {
       id: newId(),
-      label: app.processName.replace(/\.exe$/i, ""),
+      label: LAUNCHERS[app.processName.toLowerCase()]?.label ?? app.processName.replace(/\.exe$/i, ""),
       kind,
-      exePath: app.exePath,
+      exePath: launcherFor(app),
       processName: app.processName,
       open: [],
       onEnter: "launch-or-focus",
@@ -149,7 +176,7 @@ export function AppRulesEditor({ rules, onChange }: Props) {
                     </div>
                   ))}
                 </div>
-                <button className="btn ghost small" onClick={() => update(r.id, { open: [...r.open, "https://"] })}>+ Agregar ventana</button>
+                <button className="btn ghost small" onClick={() => update(r.id, { open: [...r.open, ""] })}>+ Agregar ventana</button>
               </div>
             ) : (
               <>
@@ -177,6 +204,14 @@ export function AppRulesEditor({ rules, onChange }: Props) {
               </div>
             </div>
 
+            {r.kind === "browser-zen" && r.onExit === "close" && (
+              <p className="tip">
+                En Zen, “Cerrar” <b>oculta</b> las ventanas de este modo (salen de la pantalla y de la barra de tareas) y
+                descarga sus pestañas, sin cerrarlas: cerrar una ventana de Zen borra los Essentials que tiene. Al volver
+                al modo reaparecen en su lugar.
+              </p>
+            )}
+
             {r.kind === "browser-zen" && (
               <>
                 <label className="switch">
@@ -184,6 +219,7 @@ export function AppRulesEditor({ rules, onChange }: Props) {
                          onChange={(e) => update(r.id, { unloadInactiveTabs: e.target.checked })} />
                   <span>Descargar pestañas inactivas al entrar<small>Libera RAM; las pestañas siguen ahí</small></span>
                 </label>
+                <ZenBridgeStatus workspace={r.workspace} container={r.container ?? r.workspace} />
                 <p className="tip">
                   En Zen: Ajustes → Tab Management → Workspaces → activá <i>“Switch to workspace where container is set as default”</i> y
                   asigná este contenedor como default del workspace.
@@ -203,7 +239,10 @@ export function AppRulesEditor({ rules, onChange }: Props) {
         </p>
       )}
       {hasZen && rules.filter((r) => r.kind === "browser-zen").length > 1 && (
-        <p className="warn">⚠ Hay más de una regla de Zen en este modo: se aplica la última.</p>
+        <div className="warn merge-warn">
+          <span>⚠ Hay varias reglas de Zen: así sus URLs se abren como pestañas de la misma ventana.</span>
+          <button className="btn small" onClick={() => onChange(mergeZenRules(rules))}>Unir en una regla · una ventana por URL</button>
+        </div>
       )}
 
       {picking ? (
@@ -223,6 +262,29 @@ export function AppRulesEditor({ rules, onChange }: Props) {
         <button className="btn" onClick={() => setPicking(true)}>+ Agregar app</button>
       )}
     </section>
+  );
+}
+
+/** ¿Está conectada la extensión de Zen? Sin ella no se puede elegir el workspace. */
+function ZenBridgeStatus({ workspace, container }: { workspace?: string | null; container?: string | null }) {
+  const [ok, setOk] = useState<boolean | null>(null);
+  useEffect(() => {
+    let alive = true;
+    const check = () => api.zenBridgeConnected().then((v) => alive && setOk(v)).catch(() => alive && setOk(false));
+    check();
+    const t = window.setInterval(check, 3000);
+    return () => { alive = false; window.clearInterval(t); };
+  }, []);
+  if (ok === null) return null;
+  return ok ? (
+    <p className="status ok">● Extensión de Zen conectada: las ventanas se abren en el workspace
+      {workspace ? <> “{workspace}”</> : ""} (contenedor “{container || "—"}”).</p>
+  ) : (
+    <p className="warn">
+      ● Extensión de Zen <b>no conectada</b>: las ventanas se abren igual, pero en el workspace que Zen tenga activo
+      {workspace ? <>, no en “{workspace}”</> : ""}. Instalá la extensión firmada (<code>npm run ext:sign</code>) o
+      cargala en <code>about:debugging</code> (temporal: se pierde al cerrar Zen).
+    </p>
   );
 }
 

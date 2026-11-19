@@ -1,12 +1,13 @@
 {
   "name": "contextswitch",
   "private": true,
-  "version": "0.2.0",
+  "version": "0.3.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "ext:sign": "npx --yes web-ext@8 sign --source-dir extension-zen --channel unlisted --artifacts-dir release/extension --ignore-files register-host.ps1 contextswitch_bridge.json"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.0.0",

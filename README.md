@@ -4,6 +4,16 @@ Utilidad de bandeja del sistema para Windows que cambia tu entorno completo (app
 
 **100% local · sin red · sin cuentas · sin registro de teclas.**
 
+## Instalación
+
+1. Descargá `ContextSwitch_0.3.0_x64-setup.exe` de [Releases](https://github.com/LUCAS-BTNCR/ContextSwitch/releases) y ejecutalo (por usuario, sin admin). Abrir la app de nuevo reemplaza a la que esté corriendo: nunca hay dos.
+2. **Zen Browser** (opcional): instalá `contextswitch_companion-0.3.1.xpi` (firmada por Mozilla) desde `about:addons` → ⚙ → *Install Add-on From File…*. La app registra sola el puente local al arrancar.
+3. En Zen, cada workspace debe tener un **contenedor por defecto**; ese contenedor es el que se pone en la regla de Zen. Activá *Switch to workspace where container is set as default*.
+
+Detalles de Zen que la app respeta: reusa tus **Essentials** del mismo sitio en vez de abrir pestañas nuevas, y **nunca cierra ventanas de Zen** (cerrar una ventana borra los Essentials que contiene): al salir de un modo las oculta y al volver reaparecen. Para ventanas más angostas que 500 px (zonas de 25 %) Zen necesita un `userChrome.css` con `--window-min-width` menor.
+
+Línea de comandos: `ContextSwitch.exe --activate <id-del-modo>`. Diagnóstico de la extensión: `%APPDATA%\ContextSwitch\bridge.log`.
+
 ---
 
 ## 1. Arquitectura

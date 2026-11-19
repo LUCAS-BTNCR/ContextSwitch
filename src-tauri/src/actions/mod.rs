@@ -38,22 +38,40 @@ pub fn activate(prev: Option<&Profile>, next: &Profile) -> Report {
 
     // 1b) "Solo las apps de este modo": cierre amable (WM_CLOSE) de todo lo demás.
     //      Va antes de lanzar nada, así las apps nuevas nunca reciben el cierre.
+    //      Se decide ventana por ventana: explorer.exe es a la vez la barra de tareas y las
+    //      carpetas abiertas, y solo las carpetas se cierran.
     if next.close_others {
         let own = std::env::current_exe().ok()
             .and_then(|p| p.file_name().map(|n| n.to_string_lossy().to_lowercase()));
-        let mut targets: Vec<String> = windows_enum::top_windows().into_iter()
-            .filter(|w| !w.cloaked)
-            .map(|w| w.process_name)
-            .filter(|p| !keeps_open(next, p, own.as_deref()))
-            .collect();
-        targets.sort();
-        targets.dedup();
-        for p in &targets { window_ops::close_gracefully(p); }
+        let me_elevated = windows_enum::is_elevated(std::process::id());
+        let mut skipped_admin: Vec<String> = Vec::new();
+        for w in windows_enum::top_windows().into_iter().filter(|w| !w.cloaked) {
+            match close_decision(next, &w.process_name, &w.class_name, own.as_deref()) {
+                Close::Keep => {}
+                Close::Close if !me_elevated && windows_enum::is_elevated(w.pid) => {
+                    if !skipped_admin.contains(&w.process_name) { skipped_admin.push(w.process_name.clone()); }
+                }
+                Close::Close => window_ops::close_window_of(&w),
+            }
+        }
+        if !skipped_admin.is_empty() {
+            r.warnings.push(format!(
+                "No se pudo cerrar {} porque se ejecuta como administrador (Windows no deja que una app normal la cierre).",
+                skipped_admin.join(", ")));
+        }
     }
 
     // 2) Acción al salir del perfil anterior (si el nuevo no usa esa app).
+    let mut zen_exits: Vec<(String, AppRule)> = Vec::new();
     if let Some(prev) = prev {
-        for app in prev.apps.iter().filter(|a| !uses(&a.process_name)) {
+        for app in &prev.apps {
+            // Las ventanas de Zen que abrió ese modo son SUYAS: se tratan aunque el modo
+            // nuevo también use Zen (antes se salteaban y quedaban abiertas).
+            if app.kind == AppKind::BrowserZen && app.separate_windows {
+                zen_exits.push((prev.id.clone(), app.clone())); // se aplica al final (ver 6)
+                continue;
+            }
+            if uses(&app.process_name) { continue; }
             match app.on_exit {
                 ExitAction::Keep => {}
                 ExitAction::Minimize => {
@@ -104,6 +122,14 @@ pub fn activate(prev: Option<&Profile>, next: &Profile) -> Report {
         if launched_any && jobs.is_empty() { thread::sleep(Duration::from_millis(1500)); }
         let before = layout::apply(l);
         r.undo_layout.get_or_insert(before);
+    }
+
+    // 6) Ventanas de Zen del modo anterior: AL FINAL. Si se ocultaran antes, la extensión
+    //    podría volver a mostrar una al enfocar la ventana con la última pestaña usada del
+    //    modo nuevo (cada ventana de Zen tiene copias de los Essentials de todos los wf).
+    if !zen_exits.is_empty() {
+        thread::sleep(Duration::from_millis(700)); // que la extensión termine lo suyo
+        for (pid, app) in &zen_exits { exit_zen_windows(pid, app); }
     }
     r
 }
@@ -156,9 +182,59 @@ fn wait_until(max: Duration, mut ok: impl FnMut() -> bool) -> bool {
 // aparecen. Las identificadas se recuerdan (en memoria) para reubicarlas en la próxima
 // activación en vez de abrir otras.
 
+/// Ventanas abiertas por ContextSwitch ("perfil|regla|índice" → HWND). Se guardan en
+/// %APPDATA%\ContextSwitch\windows.json para sobrevivir a un reinicio de la app; al usarlas
+/// se valida que el HWND siga siendo una ventana viva de ese proceso.
 fn remembered() -> &'static Mutex<HashMap<String, isize>> {
     static M: OnceLock<Mutex<HashMap<String, isize>>> = OnceLock::new();
-    M.get_or_init(Default::default)
+    M.get_or_init(|| {
+        let map = std::fs::read_to_string(windows_file()).ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_default();
+        Mutex::new(map)
+    })
+}
+
+fn windows_file() -> std::path::PathBuf {
+    std::env::var_os("APPDATA").map(std::path::PathBuf::from).unwrap_or_else(|| ".".into())
+        .join("ContextSwitch").join("windows.json")
+}
+
+fn save_remembered(map: &HashMap<String, isize>) {
+    if let Ok(s) = serde_json::to_string_pretty(map) { let _ = std::fs::write(windows_file(), s); }
+}
+
+/// Al salir de un modo, sus ventanas de Zen:
+/// - Cerrar: se OCULTAN (fuera de pantalla y de la barra de tareas). No se cierran,
+///   porque cerrar una ventana de Zen borra sus Essentials. Al volver, reaparecen.
+/// - Minimizar: se minimizan.
+/// - Dejar: no se tocan.
+fn exit_zen_windows(profile_id: &str, app: &AppRule) {
+    if app.on_exit == ExitAction::Keep { return; }
+    let mem = remembered().lock().unwrap();
+    let mut any = false;
+    for i in 0..app.open.len() {
+        let Some(h) = mem.get(&format!("{profile_id}|{}|{i}", app.id)).copied() else { continue };
+        let hwnd = HWND(h as _);
+        if !windows_enum::is_window_of(hwnd, &app.process_name) { continue; }
+        match app.on_exit {
+            ExitAction::Close => window_ops::hide_hwnd(hwnd),
+            _ => window_ops::minimize_hwnd(hwnd),
+        }
+        any = true;
+    }
+    drop(mem);
+    if any { let _ = bridge::send(&bridge::ZenCommand::UnloadInactive); }
+}
+
+/// Al salir de ContextSwitch: las ventanas que ocultó vuelven a la barra de tareas
+/// (minimizadas), así nunca quedan ventanas de Zen invisibles sin forma de verlas.
+pub fn reveal_hidden_windows() {
+    let mem = remembered().lock().unwrap();
+    for &h in mem.values() {
+        let hwnd = HWND(h as _);
+        if windows_enum::is_window_of(hwnd, "zen.exe") { window_ops::unhide_hwnd(hwnd, true); }
+    }
 }
 
 fn zen_hwnds(process: &str) -> Vec<isize> {
@@ -178,6 +254,13 @@ fn collect_new(process: &str, before: &HashSet<isize>, want: usize, max: Duratio
     found
 }
 
+/// URL web completa: descarta "", "https://" y similares (un campo de la UI sin completar).
+fn is_web_url(u: &str) -> bool {
+    let u = u.trim();
+    let rest = u.strip_prefix("https://").or_else(|| u.strip_prefix("http://"));
+    rest.map(|r| r.split(['/', '?', '#']).next().unwrap_or("")).is_some_and(|host| !host.is_empty())
+}
+
 /// Devuelve true si lanzó Zen.
 fn zen_separate_windows(profile_id: &str, app: &AppRule, r: &mut Report, jobs: &mut Vec<PlaceJob>) -> bool {
     let proc = app.process_name.to_lowercase();
@@ -189,10 +272,13 @@ fn zen_separate_windows(profile_id: &str, app: &AppRule, r: &mut Report, jobs: &
     let mut missing: Vec<usize> = Vec::new();
     {
         let mut mem = remembered().lock().unwrap();
-        for i in 0..app.open.len() {
-            match mem.get(&key(i)).copied().filter(|h| alive.contains(h)) {
+        for i in (0..app.open.len()).filter(|&i| is_web_url(&app.open[i])) {
+            // Viva aunque esté oculta (la ocultamos al salir del modo).
+            match mem.get(&key(i)).copied()
+                .filter(|h| alive.contains(h) || windows_enum::is_window_of(HWND(*h as _), &proc)) {
                 Some(h) => {
                     let hwnd = HWND(h as _);
+                    window_ops::unhide_hwnd(hwnd, false);
                     match place_of(i) {
                         Some(p) => jobs.push(PlaceJob { target: Target::Hwnd(hwnd), place: p }),
                         None => window_ops::focus_hwnd(hwnd),
@@ -201,48 +287,56 @@ fn zen_separate_windows(profile_id: &str, app: &AppRule, r: &mut Report, jobs: &
                 None => { mem.remove(&key(i)); missing.push(i); }
             }
         }
+        save_remembered(&mem);
+    }
+    let container = app.container.as_deref().or(app.workspace.as_deref());
+    if missing.len() < app.open.len() {
+        let _ = bridge::send(&bridge::ZenCommand::AdoptWindows { container, urls: &app.open });
     }
     if missing.is_empty() { return false; }
 
-    // Zen cerrado: se abre solo (sin URLs) y se espera a que restaure su sesión, así
-    // esas ventanas no se confunden con las nuevas.
+    let assign = |i: usize, h: isize, jobs: &mut Vec<PlaceJob>| {
+        let mut mem = remembered().lock().unwrap();
+        mem.insert(key(i), h);
+        save_remembered(&mem);
+        drop(mem);
+        if let Some(p) = place_of(i) { jobs.push(PlaceJob { target: Target::Hwnd(HWND(h as _)), place: p }); }
+    };
+
+    // Zen cerrado: se abre solo (restaura su sesión) y se espera a que la extensión conecte.
+    // (Por proceso, no por ventanas visibles: con todas sus ventanas ocultas Zen sigue abierto.)
     let mut launched = false;
-    if alive.is_empty() {
+    if !windows_enum::process_running(&proc) {
         window_ops::shell_open(&app.exe_path, "");
         launched = true;
-        wait_until(Duration::from_secs(15), || !zen_hwnds(&proc).is_empty());
-        thread::sleep(Duration::from_millis(2000));
-        bridge::wait_ready(5000);
+        wait_until(Duration::from_secs(20), || !zen_hwnds(&proc).is_empty());
+        bridge::wait_ready(10_000);
     }
 
-    let before: HashSet<isize> = zen_hwnds(&proc).into_iter().collect();
-    let urls: Vec<String> = missing.iter().map(|&i| app.open[i].clone()).collect();
-    let container = app.container.as_deref().or(app.workspace.as_deref());
-
-    // Con la extensión: ventanas en el contenedor del workspace. Sin ella: línea de comandos.
-    let mut found = Vec::new();
-    if bridge::send(&bridge::ZenCommand::OpenWindows { container, urls: &urls }).is_ok() {
-        found = collect_new(&proc, &before, urls.len(), Duration::from_secs(4 + urls.len() as u64));
+    // SOLO con la extensión. Sin ella no hay forma de elegir el workspace ni de reusar
+    // Essentials: abrir igual (zen.exe -new-window) dejaba pestañas nuevas en el workspace
+    // equivocado. Mejor no hacer nada y avisar.
+    if !bridge::wait_ready(3000) {
+        r.warnings.push(
+            "Zen: la extensión ContextSwitch Companion no está conectada, así que no se abrió nada en Zen \
+             (no se puede elegir el workspace ni reusar tus Essentials). Instalala o activala en Zen.".into());
+        return launched;
     }
-    if found.len() < urls.len() {
-        if found.is_empty() {
-            r.warnings.push("Zen: extensión companion no conectada; ventanas abiertas sin workspace.".into());
+
+    // De a UNA ventana por vez: se pide, se espera a que aparezca y recién ahí la siguiente.
+    // Así cada ventana nueva es inequívocamente la de esa URL.
+    let mut seen: HashSet<isize> = zen_hwnds(&proc).into_iter().collect();
+    for &i in &missing {
+        let url = std::slice::from_ref(&app.open[i]);
+        bridge::wait_ready(1500); // cs-bridge recrea su pipe entre mensajes
+        let got = if bridge::send(&bridge::ZenCommand::OpenWindows { container, urls: url }).is_ok() {
+            collect_new(&proc, &seen, 1, Duration::from_secs(6)).first().copied()
+        } else { None };
+        match got {
+            Some(h) => { seen.insert(h); assign(i, h, jobs); }
+            None => r.warnings.push(format!("Zen: no se pudo abrir la ventana de {}.", app.open[i])),
         }
-        let seen: HashSet<isize> = before.iter().chain(found.iter()).copied().collect();
-        for u in &urls[found.len()..] {
-            let arg = window_ops::quote_args(std::slice::from_ref(u));
-            window_ops::shell_open(&app.exe_path, &format!("-new-window {arg}"));
-            thread::sleep(Duration::from_millis(700));
-        }
-        found.extend(collect_new(&proc, &seen, urls.len() - found.len(), Duration::from_secs(8)));
     }
-
-    let mut mem = remembered().lock().unwrap();
-    for (&i, &h) in missing.iter().zip(found.iter()) {
-        mem.insert(key(i), h);
-        if let Some(p) = place_of(i) { jobs.push(PlaceJob { target: Target::Hwnd(HWND(h as _)), place: p }); }
-    }
-    drop(mem);
 
     if app.unload_inactive_tabs { let _ = bridge::send(&bridge::ZenCommand::UnloadInactive); }
     launched
@@ -253,8 +347,23 @@ fn zen_separate_windows(profile_id: &str, app: &AppRule, r: &mut Report, jobs: &
 const NEVER_CLOSE: &[&str] = &[
     "explorer.exe", "contextswitch.exe", "cs-bridge.exe",
     "shellexperiencehost.exe", "startmenuexperiencehost.exe", "searchhost.exe", "searchapp.exe",
-    "textinputhost.exe", "lockapp.exe", "dwm.exe", "taskmgr.exe",
+    "textinputhost.exe", "lockapp.exe", "dwm.exe",
 ];
+
+/// Ventanas de carpeta del Explorador: se cierran aunque explorer.exe esté protegido.
+const EXPLORER_FOLDER_CLASSES: &[&str] = &["CabinetWClass", "ExploreWClass"];
+
+#[derive(Debug, PartialEq)]
+enum Close { Keep, Close }
+
+fn close_decision(next: &Profile, proc: &str, class_name: &str, own_exe: Option<&str>) -> Close {
+    let user_keeps = next.apps.iter().any(|a| a.process_name.eq_ignore_ascii_case(proc))
+        || next.keep_open.iter().any(|k| k.eq_ignore_ascii_case(proc));
+    if proc == "explorer.exe" && EXPLORER_FOLDER_CLASSES.contains(&class_name) && !user_keeps {
+        return Close::Close;
+    }
+    if keeps_open(next, proc, own_exe) { Close::Keep } else { Close::Close }
+}
 
 /// true si `proc` (en minúsculas) debe quedar abierto al activar `next` con close_others.
 fn keeps_open(next: &Profile, proc: &str, own_exe: Option<&str>) -> bool {
@@ -268,7 +377,7 @@ fn keeps_open(next: &Profile, proc: &str, own_exe: Option<&str>) -> bool {
 fn enter_app(profile_id: &str, app: &AppRule, r: &mut Report, jobs: &mut Vec<PlaceJob>) -> bool {
     if app.on_enter == EnterAction::None { return false; }
 
-    if app.kind == AppKind::BrowserZen && app.separate_windows && !app.open.is_empty() {
+    if app.kind == AppKind::BrowserZen && app.separate_windows && app.open.iter().any(|u| is_web_url(u)) {
         return zen_separate_windows(profile_id, app, r, jobs);
     }
 
@@ -284,27 +393,29 @@ fn enter_app_main(app: &AppRule, r: &mut Report) -> bool {
     let force = app.on_enter == EnterAction::Launch;
 
     if app.kind == AppKind::BrowserZen {
-        let running = !windows_enum::windows_of(&app.process_name).is_empty();
-        if running {
-            let sent = bridge::send(&bridge::ZenCommand::Activate {
-                workspace: app.workspace.as_deref(),
-                container: app.container.as_deref().or(app.workspace.as_deref()),
-                urls: &app.open,
-                unload_inactive: app.unload_inactive_tabs,
-            });
-            if sent.is_err() {
-                r.warnings.push("Zen: extensión companion no conectada; se abren las URLs sin workspace.".into());
-                for u in &app.open { window_ops::shell_open(&app.exe_path, u); }
-            }
-            window_ops::launch_or_focus(&app.process_name, &app.exe_path, &[], false);
-            return false;
+        // Zen cerrado: se abre solo (restaura su sesión) y se espera a la extensión.
+        let launched = !windows_enum::process_running(&app.process_name);
+        if launched {
+            window_ops::shell_open(&app.exe_path, "");
+            wait_until(Duration::from_secs(20), || !windows_enum::windows_of(&app.process_name).is_empty());
+            bridge::wait_ready(10_000);
         }
-        // No estaba abierto: se lanza; la extensión aplicará el workspace al conectarse
-        // en el próximo cambio. Las URLs se pasan como argumentos.
-        let mut args = app.args.clone();
-        args.extend(app.open.iter().cloned());
-        window_ops::launch_or_focus(&app.process_name, &app.exe_path, &args, true);
-        return true;
+        // Solo con la extensión (workspace + Essentials). Sin ella no se abre nada:
+        // abrir las URLs igual las dejaba en el workspace equivocado.
+        let urls: Vec<String> = app.open.iter().filter(|u| is_web_url(u)).cloned().collect();
+        let sent = bridge::wait_ready(3000) && bridge::send(&bridge::ZenCommand::Activate {
+            workspace: app.workspace.as_deref(),
+            container: app.container.as_deref().or(app.workspace.as_deref()),
+            urls: &urls,
+            unload_inactive: app.unload_inactive_tabs,
+        }).is_ok();
+        if !sent {
+            r.warnings.push(
+                "Zen: la extensión ContextSwitch Companion no está conectada, así que no se abrió nada en Zen \
+                 (no se puede elegir el workspace ni reusar tus Essentials). Instalala o activala en Zen.".into());
+        }
+        if !launched { window_ops::launch_or_focus(&app.process_name, &app.exe_path, &[], false); }
+        return launched;
     }
 
     // Si ya corre: se enfoca y cada destino se pasa al exe (ej. `code "C:\carpeta"`).
@@ -347,5 +458,27 @@ mod tests {
         assert!(keeps_open(&p, "contextswitch-dev.exe", Some("contextswitch-dev.exe"))); // la propia app
         assert!(!keeps_open(&p, "chrome.exe", None));
         assert!(!keeps_open(&p, "code.exe", Some("contextswitch.exe")));
+    }
+
+    #[test]
+    fn urls_incompletas_se_ignoran() {
+        use super::is_web_url;
+        assert!(is_web_url("https://www.youtube.com/"));
+        assert!(is_web_url("http://localhost:3000"));
+        assert!(!is_web_url("https://"));
+        assert!(!is_web_url(""));
+        assert!(!is_web_url("https:///path"));
+        assert!(!is_web_url("C:\\carpeta"));
+    }
+
+    #[test]
+    fn explorador_cierra_carpetas_pero_no_la_barra() {
+        use super::{close_decision, Close};
+        let p = profile();
+        assert_eq!(close_decision(&p, "explorer.exe", "CabinetWClass", None), Close::Close);   // carpeta
+        assert_eq!(close_decision(&p, "explorer.exe", "Shell_TrayWnd", None), Close::Keep);    // barra de tareas
+        assert_eq!(close_decision(&p, "explorer.exe", "Progman", None), Close::Keep);          // escritorio
+        assert_eq!(close_decision(&p, "taskmgr.exe", "TaskManagerWindow", None), Close::Close); // ya no está protegido
+        assert_eq!(close_decision(&p, "discord.exe", "Chrome_WidgetWin_1", None), Close::Keep); // app del modo
     }
 }

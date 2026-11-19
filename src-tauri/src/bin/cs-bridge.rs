@@ -21,11 +21,30 @@ fn main() -> std::io::Result<()> {
     const PIPE_NAME: &str = r"\\.\pipe\contextswitch-zen";
     const MAX_MSG: usize = 64 * 1024;
 
-    // Si el navegador cierra stdin (extensión descargada / Zen cerrado) → salir.
+    // stdin: mensajes de la extensión (framing Native Messaging). Solo diagnóstico: se
+    // anexan a %APPDATA%\ContextSwitch\bridge.log. Si el navegador cierra stdin → salir.
     std::thread::spawn(|| {
         let mut stdin = std::io::stdin();
-        let mut buf = [0u8; 4096];
-        while matches!(stdin.read(&mut buf), Ok(n) if n > 0) {} // ignoramos acks
+        let log_path = std::env::var_os("APPDATA")
+            .map(|a| std::path::PathBuf::from(a).join("ContextSwitch").join("bridge.log"));
+        loop {
+            let mut len = [0u8; 4];
+            if stdin.read_exact(&mut len).is_err() { break; }
+            let n = u32::from_le_bytes(len) as usize;
+            if n > MAX_MSG { break; }
+            let mut body = vec![0u8; n];
+            if stdin.read_exact(&mut body).is_err() { break; }
+            if let Some(p) = &log_path {
+                // Tope de 256 KB: si se pasa, se empieza de nuevo.
+                if std::fs::metadata(p).map(|m| m.len() > 256 * 1024).unwrap_or(false) {
+                    let _ = std::fs::remove_file(p);
+                }
+                if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(p) {
+                    let _ = f.write_all(&body);
+                    let _ = f.write_all(b"\n");
+                }
+            }
+        }
         std::process::exit(0);
     });
 
