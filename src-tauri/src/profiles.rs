@@ -123,6 +123,24 @@ pub struct AppRule {
     /// Zen: descargar pestañas inactivas al entrar.
     #[serde(default)]
     pub unload_inactive_tabs: bool,
+    /// Zen: cada URL de `open` en su propia ventana (si no, pestañas de una misma ventana).
+    #[serde(default)]
+    pub separate_windows: bool,
+    /// Posición de cada ventana. Con `separate_windows`, el índice i es la ventana de `open[i]`;
+    /// si no, el índice 0 es la ventana principal de la app.
+    #[serde(default)]
+    pub placements: Vec<Option<Placement>>,
+}
+
+/// Zona de un monitor, en fracciones (0–1) de su área de trabajo.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+pub struct Placement {
+    /// Índice del monitor, ordenados de izquierda a derecha (0 = el de más a la izquierda).
+    pub monitor: u32,
+    pub x: f64,
+    pub y: f64,
+    pub w: f64,
+    pub h: f64,
 }
 fn d_enter() -> EnterAction { EnterAction::LaunchOrFocus }
 fn d_exit() -> ExitAction { ExitAction::Keep }

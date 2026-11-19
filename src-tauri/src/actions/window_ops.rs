@@ -43,6 +43,11 @@ pub fn focus(w: &TopWindow) {
     }
 }
 
+/// `focus` para una ventana identificada solo por su HWND.
+pub fn focus_hwnd(hwnd: windows::Win32::Foundation::HWND) {
+    focus(&TopWindow { hwnd, exe_path: String::new(), process_name: String::new(), title: String::new(), cloaked: false });
+}
+
 pub fn shell_open(target: &str, args: &str) {
     unsafe {
         let params = HSTRING::from(args);

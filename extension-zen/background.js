@@ -36,6 +36,17 @@ async function containerId(name) {
 async function handle(msg) {
   if (msg.type === "activate") return activate(msg);
   if (msg.type === "unloadInactive") return unloadInactive();
+  if (msg.type === "openWindows") return openWindows(msg);
+}
+
+// Una ventana por URL, en orden. ContextSwitch identifica cada ventana por el orden en
+// que aparece (no lee títulos ni URLs), así que se crean de a una con una pausa.
+async function openWindows({ container, urls = [] }) {
+  const cookieStoreId = await containerId(container);
+  for (const url of urls) {
+    await browser.windows.create({ url: url || undefined, cookieStoreId, focused: true });
+    await new Promise((r) => setTimeout(r, 500));
+  }
 }
 
 async function activate({ container, urls = [], unloadInactive: unload }) {

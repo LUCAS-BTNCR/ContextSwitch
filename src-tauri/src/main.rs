@@ -74,6 +74,9 @@ fn app_icons(paths: Vec<String>) -> std::collections::HashMap<String, String> {
 }
 
 #[tauri::command]
+fn list_monitors() -> Vec<actions::placement::MonitorInfo> { actions::placement::monitors() }
+
+#[tauri::command]
 fn capture_layout() -> LayoutSnapshot {
     actions::layout::capture(chrono::Local::now().to_rfc3339())
 }
@@ -259,7 +262,7 @@ fn main() {
             if let WindowEvent::CloseRequested { api, .. } = ev { api.prevent_close(); let _ = w.hide(); }
         })
         .invoke_handler(tauri::generate_handler![
-            get_config, save_config, list_audio_devices, list_running_apps, app_icons,
+            get_config, save_config, list_audio_devices, list_running_apps, app_icons, list_monitors,
             capture_layout, undo_layout, set_test_mode, activate_profile
         ])
         .run(tauri::generate_context!())

@@ -1,7 +1,34 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
-import type { AppKind, AppRule, ExitAction, RunningApp } from "../types";
+import type { AppKind, AppRule, ExitAction, MonitorInfo, Placement, RunningApp } from "../types";
 import { AppIcon } from "./AppIcon";
+import { LayoutPreview, PlacementPicker, type PreviewItem } from "./Placement";
+
+/** Copia de `arr` con `arr[i] = v`, rellenando con null si hace falta. */
+function setAt(arr: (Placement | null)[] | undefined, i: number, v: Placement | null) {
+  const out = [...(arr ?? [])];
+  while (out.length <= i) out.push(null);
+  out[i] = v;
+  return out;
+}
+
+const hostOf = (url: string) => {
+  try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return url; }
+};
+
+/** Qué dibujar en la vista previa: cada ventana con posición fija. */
+function previewItems(rules: AppRule[]): PreviewItem[] {
+  const out: PreviewItem[] = [];
+  for (const r of rules) {
+    if (r.kind === "browser-zen" && r.separateWindows) {
+      r.open.forEach((url, i) => { const p = r.placements?.[i]; if (p) out.push({ label: hostOf(url), place: p }); });
+    } else {
+      const p = r.placements?.[0];
+      if (p) out.push({ label: r.label, place: p });
+    }
+  }
+  return out;
+}
 
 const MAIL = ["spark.exe", "outlook.exe", "olk.exe", "thunderbird.exe", "mailbird.exe", "hxoutlook.exe"];
 const CHAT = ["discord.exe", "slack.exe", "teams.exe", "ms-teams.exe", "telegram.exe", "whatsapp.exe"];
@@ -27,6 +54,9 @@ interface Props { rules: AppRule[]; onChange: (rules: AppRule[]) => void }
 export function AppRulesEditor({ rules, onChange }: Props) {
   const [running, setRunning] = useState<RunningApp[]>([]);
   const [picking, setPicking] = useState(false);
+  const [monitors, setMonitors] = useState<MonitorInfo[]>([]);
+
+  useEffect(() => { api.listMonitors().then(setMonitors).catch(() => setMonitors([])); }, []);
 
   useEffect(() => { if (picking) api.listRunningApps().then(setRunning); }, [picking]);
 
@@ -95,10 +125,45 @@ export function AppRulesEditor({ rules, onChange }: Props) {
               )}
             </div>
 
-            <label className="field">
-              <span>URLs o rutas a abrir <small>(una por línea)</small></span>
-              <LinesInput value={r.open} onChange={(open) => update(r.id, { open })} />
-            </label>
+            {r.kind === "browser-zen" && (
+              <label className="switch">
+                <input type="checkbox" checked={!!r.separateWindows}
+                       onChange={(e) => update(r.id, { separateWindows: e.target.checked })} />
+                <span>Abrir cada URL en su propia ventana<small>Si no, se abren como pestañas de una misma ventana</small></span>
+              </label>
+            )}
+
+            {r.kind === "browser-zen" && r.separateWindows ? (
+              <div className="field">
+                <span>Ventanas <small>(una por URL, cada una con su posición)</small></span>
+                <div className="win-rows">
+                  {r.open.map((url, i) => (
+                    <div key={i} className="win-row">
+                      <UrlInput value={url} onChange={(u) => update(r.id, { open: r.open.map((x, j) => (j === i ? u : x)) })} />
+                      <PlacementPicker value={r.placements?.[i]} monitors={monitors}
+                                       onChange={(p) => update(r.id, { placements: setAt(r.placements, i, p) })} />
+                      <button className="icon-btn" aria-label="Quitar ventana" onClick={() => update(r.id, {
+                        open: r.open.filter((_, j) => j !== i),
+                        placements: (r.placements ?? []).filter((_, j) => j !== i),
+                      })}>✕</button>
+                    </div>
+                  ))}
+                </div>
+                <button className="btn ghost small" onClick={() => update(r.id, { open: [...r.open, "https://"] })}>+ Agregar ventana</button>
+              </div>
+            ) : (
+              <>
+                <label className="field">
+                  <span>URLs o rutas a abrir <small>(una por línea)</small></span>
+                  <LinesInput value={r.open} onChange={(open) => update(r.id, { open })} />
+                </label>
+                <div className="field">
+                  <span>Posición de la ventana</span>
+                  <PlacementPicker value={r.placements?.[0]} monitors={monitors}
+                                   onChange={(p) => update(r.id, { placements: setAt(r.placements, 0, p) })} />
+                </div>
+              </>
+            )}
 
             <div className="field">
               <span>Al salir de este modo</span>
@@ -129,6 +194,8 @@ export function AppRulesEditor({ rules, onChange }: Props) {
         ))}
       </div>
 
+      <LayoutPreview monitors={monitors} items={previewItems(rules)} />
+
       {hasMail && (
         <p className="tip subtle">
           💡 Si tu cliente de correo es solo laboral, usá un workspace del navegador para tu correo personal:
@@ -156,6 +223,17 @@ export function AppRulesEditor({ rules, onChange }: Props) {
         <button className="btn" onClick={() => setPicking(true)}>+ Agregar app</button>
       )}
     </section>
+  );
+}
+
+/** Input de una URL que confirma al salir del campo (no guarda en cada tecla). */
+function UrlInput({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const [text, setText] = useState(value);
+  useEffect(() => setText(value), [value]);
+  return (
+    <input className="url-input" placeholder="https://…" value={text} onChange={(e) => setText(e.target.value)}
+           onBlur={() => text.trim() !== value && onChange(text.trim())}
+           onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()} />
   );
 }
 

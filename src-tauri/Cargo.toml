@@ -1,6 +1,6 @@
 [package]
 name = "contextswitch"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 default-run = "contextswitch"
 
@@ -48,6 +48,7 @@ features = [
   "Win32_UI_Shell_PropertiesSystem",
   "Win32_Graphics_Gdi",
   "Win32_Graphics_Dwm",
+  "Win32_UI_HiDpi",
 ]
 
 [profile.release]

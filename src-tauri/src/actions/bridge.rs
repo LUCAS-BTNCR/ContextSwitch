@@ -23,6 +23,20 @@ pub enum ZenCommand<'a> {
     },
     #[serde(rename_all = "camelCase")]
     UnloadInactive,
+    /// Una ventana nueva por URL, en orden y en el contenedor del workspace.
+    #[serde(rename_all = "camelCase")]
+    OpenWindows {
+        container: Option<&'a str>,
+        urls: &'a [String],
+    },
+}
+
+/// Espera hasta `ms` a que cs-bridge esté escuchando (la extensión conectada), sin
+/// consumir la instancia del pipe.
+pub fn wait_ready(ms: u32) -> bool {
+    use windows::core::HSTRING;
+    use windows::Win32::System::Pipes::WaitNamedPipeW;
+    unsafe { WaitNamedPipeW(&HSTRING::from(PIPE_NAME), ms).as_bool() }
 }
 
 /// Err si la extensión no está corriendo (Zen cerrado) → el caller hace fallback.

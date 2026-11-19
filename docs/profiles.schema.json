@@ -93,7 +93,26 @@
         "open": { "type": "array", "items": { "type": "string" }, "description": "URLs o rutas" },
         "onEnter": { "enum": ["launch-or-focus", "launch", "none"], "default": "launch-or-focus" },
         "onExit": { "enum": ["keep", "minimize", "close"], "default": "keep" },
-        "unloadInactiveTabs": { "type": "boolean", "default": false }
+        "unloadInactiveTabs": { "type": "boolean", "default": false },
+        "separateWindows": { "type": "boolean", "default": false, "description": "Zen: cada URL de open en su propia ventana." },
+        "placements": {
+          "type": "array",
+          "description": "Con separateWindows, placements[i] es la ventana de open[i]; si no, [0] es la ventana principal. null = sin posición fija.",
+          "items": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/placement" }] }
+        }
+      }
+    },
+    "placement": {
+      "type": "object",
+      "required": ["monitor", "x", "y", "w", "h"],
+      "additionalProperties": false,
+      "description": "Zona en fracciones (0–1) del área de trabajo del monitor. Monitores ordenados de izquierda a derecha.",
+      "properties": {
+        "monitor": { "type": "integer", "minimum": 0 },
+        "x": { "type": "number", "minimum": 0, "maximum": 1 },
+        "y": { "type": "number", "minimum": 0, "maximum": 1 },
+        "w": { "type": "number", "exclusiveMinimum": 0, "maximum": 1 },
+        "h": { "type": "number", "exclusiveMinimum": 0, "maximum": 1 }
       }
     },
     "layout": {

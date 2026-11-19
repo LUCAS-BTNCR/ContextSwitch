@@ -25,6 +25,19 @@ export interface AppRule {
   onEnter: EnterAction;
   onExit: ExitAction;
   unloadInactiveTabs?: boolean;
+  /** Zen: cada URL de `open` en su propia ventana. */
+  separateWindows?: boolean;
+  /** Con separateWindows, placements[i] es la ventana de open[i]; si no, [0] es la ventana principal. */
+  placements?: (Placement | null)[];
+}
+
+/** Zona de un monitor en fracciones (0–1) de su área de trabajo. Monitores de izquierda a derecha. */
+export interface Placement { monitor: number; x: number; y: number; w: number; h: number }
+
+export interface MonitorInfo {
+  index: number; primary: boolean;
+  left: number; top: number; width: number; height: number;
+  workLeft: number; workTop: number; workWidth: number; workHeight: number;
 }
 
 export interface Rect { left: number; top: number; right: number; bottom: number }
