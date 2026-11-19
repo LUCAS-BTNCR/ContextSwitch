@@ -109,17 +109,17 @@ Tests (`cargo test` o `rustc --test src/hotkey/chord.rs`): disparo en el segundo
 - [ ] Layout: capturar en 2 monitores, desordenar, activar el modo y después **Deshacer** desde la bandeja.
 
 ### Domingo mañana (3 h) · Zen
-- [ ] `cargo build --release --bin cs-bridge`
-- [ ] `extension-zen\register-host.ps1 -BridgeExe target\release\cs-bridge.exe`
+- [x] `cargo build --release --bin cs-bridge`
+- [x] Registrar el host: la app lo hace sola al arrancar si `cs-bridge.exe` está junto a su exe (instalador o carpeta portable). En dev: `extension-zen\register-host.ps1 -BridgeExe src-tauri\target\release\cs-bridge.exe`.
 - [ ] Zen → `about:debugging` → *Load Temporary Add-on* → `extension-zen/manifest.json`.
 - [ ] Zen: crear contenedores (ej. *Oficina*, *Personal*), asignar cada uno como default de su workspace y activar *Switch to workspace where container is set as default*.
 - [ ] Verificar: el modo Gaming salta al workspace *Entretenimiento*, abre YouTube la primera vez y descarga pestañas inactivas.
 - [ ] Para uso permanente: firmar la extensión como **unlisted** en AMO (`npx web-ext sign --channel=unlisted`). Es gratis, automático y no queda publicada.
 
 ### Domingo tarde (2–3 h) · Pulido y release
-- [ ] Toast/tooltip al cambiar de modo y check ✓ en el menú de la bandeja.
+- [ ] Toast al cambiar de modo (falta `tauri-plugin-notification`). Hechos: tooltip con el modo activo y check ✓ en el menú de la bandeja.
 - [ ] Iniciar con Windows (ya escribe `HKCU\...\Run`).
-- [ ] `npm run tauri build` → instalador NSIS. Copiar `cs-bridge.exe` junto al exe principal.
+- [x] `npm run tauri build` → instalador NSIS en `src-tauri\target\release\bundle\nsis\`. Ya incluye `cs-bridge.exe`.
 - [ ] Probar en una sesión limpia: borrar `%APPDATA%\ContextSwitch` y arrancar de cero.
 
 ### Fuera del MVP
