@@ -1,0 +1,128 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contextswitch.app/profiles.schema.json",
+  "title": "ContextSwitch profiles.json",
+  "type": "object",
+  "required": ["version", "settings", "profiles"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": { "type": "string" },
+    "version": { "const": 1 },
+    "settings": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "doubleTapWindowMs": { "type": "integer", "minimum": 150, "maximum": 1000, "default": 500 },
+        "swallowTrigger": { "type": "boolean", "default": true, "description": "Reserva el chord: la tecla disparadora no llega a la app en foco." },
+        "startWithWindows": { "type": "boolean", "default": false },
+        "showToastOnSwitch": { "type": "boolean", "default": true },
+        "activeProfileId": { "type": ["string", "null"] }
+      }
+    },
+    "profiles": { "type": "array", "items": { "$ref": "#/$defs/profile" } }
+  },
+  "$defs": {
+    "profile": {
+      "type": "object",
+      "required": ["id", "name", "trigger"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z0-9-]+$" },
+        "name": { "type": "string", "minLength": 1 },
+        "icon": { "type": ["string", "null"] },
+        "enabled": { "type": "boolean", "default": true },
+        "trigger": { "$ref": "#/$defs/trigger" },
+        "audio": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/audio" }] },
+        "apps": { "type": "array", "items": { "$ref": "#/$defs/appRule" } },
+        "closeOnEnter": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "\\.exe$" },
+          "description": "Lista de exclusión: procesos que reciben WM_CLOSE al entrar al modo."
+        },
+        "closeOthers": {
+          "type": "boolean",
+          "default": false,
+          "description": "Al entrar, WM_CLOSE a toda ventana cuyo proceso no esté en apps ni en keepOpen (el shell de Windows nunca se cierra)."
+        },
+        "keepOpen": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "\\.exe$" },
+          "description": "Procesos que closeOthers nunca cierra (ej. windowsterminal.exe)."
+        },
+        "layout": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/layout" }] }
+      }
+    },
+    "trigger": {
+      "type": "object",
+      "required": ["modifiers", "key", "vk"],
+      "additionalProperties": false,
+      "properties": {
+        "modifiers": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "enum": ["ctrl", "shift", "alt", "win"] }
+        },
+        "key": { "type": "string", "description": "Etiqueta visible" },
+        "vk": { "type": "integer", "minimum": 1, "maximum": 254, "description": "Virtual-key code (lo que compara el hook)" }
+      }
+    },
+    "audio": {
+      "type": "object",
+      "required": ["outputDeviceId", "outputDeviceName"],
+      "additionalProperties": false,
+      "properties": {
+        "outputDeviceId": { "type": "string" },
+        "outputDeviceName": { "type": "string" },
+        "setCommunicationsToo": { "type": "boolean", "default": true }
+      }
+    },
+    "appRule": {
+      "type": "object",
+      "required": ["id", "label", "kind", "exePath", "processName"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string" },
+        "label": { "type": "string" },
+        "kind": { "enum": ["generic", "browser-zen", "mail", "chat"] },
+        "exePath": { "type": "string" },
+        "processName": { "type": "string", "pattern": "\\.exe$" },
+        "args": { "type": "array", "items": { "type": "string" } },
+        "workspace": { "type": ["string", "null"], "description": "Nombre libre del Workspace/Perfil dentro de la app" },
+        "container": { "type": ["string", "null"], "description": "Zen: contenedor por defecto de ese workspace (si falta, se usa 'workspace')" },
+        "open": { "type": "array", "items": { "type": "string" }, "description": "URLs o rutas" },
+        "onEnter": { "enum": ["launch-or-focus", "launch", "none"], "default": "launch-or-focus" },
+        "onExit": { "enum": ["keep", "minimize", "close"], "default": "keep" },
+        "unloadInactiveTabs": { "type": "boolean", "default": false }
+      }
+    },
+    "layout": {
+      "type": "object",
+      "required": ["capturedAt", "windows"],
+      "additionalProperties": false,
+      "properties": {
+        "capturedAt": { "type": "string", "format": "date-time" },
+        "windows": { "type": "array", "items": { "$ref": "#/$defs/windowPlacement" } }
+      }
+    },
+    "windowPlacement": {
+      "type": "object",
+      "required": ["processName", "show", "rect"],
+      "additionalProperties": false,
+      "properties": {
+        "processName": { "type": "string" },
+        "titleContains": { "type": ["string", "null"] },
+        "ordinal": { "type": "integer", "minimum": 0, "default": 0 },
+        "show": { "enum": ["normal", "maximized", "minimized"] },
+        "rect": {
+          "type": "object",
+          "required": ["left", "top", "right", "bottom"],
+          "properties": {
+            "left": { "type": "integer" }, "top": { "type": "integer" },
+            "right": { "type": "integer" }, "bottom": { "type": "integer" }
+          }
+        }
+      }
+    }
+  }
+}

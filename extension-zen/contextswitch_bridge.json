@@ -1,0 +1,7 @@
+{
+  "name": "contextswitch_bridge",
+  "description": "ContextSwitch local bridge (named pipe <-> Native Messaging)",
+  "path": "C:\\Program Files\\ContextSwitch\\cs-bridge.exe",
+  "type": "stdio",
+  "allowed_extensions": ["companion@contextswitch.app"]
+}

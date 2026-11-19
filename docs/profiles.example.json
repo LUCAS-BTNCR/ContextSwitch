@@ -1,0 +1,114 @@
+{
+  "$schema": "./profiles.schema.json",
+  "version": 1,
+  "settings": {
+    "doubleTapWindowMs": 450,
+    "swallowTrigger": true,
+    "startWithWindows": true,
+    "showToastOnSwitch": true,
+    "activeProfileId": "trabajo"
+  },
+  "profiles": [
+    {
+      "id": "trabajo",
+      "name": "Trabajo",
+      "icon": "💼",
+      "enabled": true,
+      "trigger": { "modifiers": ["ctrl", "shift"], "key": "T", "vk": 84 },
+      "audio": {
+        "outputDeviceId": "{0.0.0.00000000}.{a1b2c3d4-0000-0000-0000-000000000001}",
+        "outputDeviceName": "Auriculares (Jabra Evolve2)",
+        "setCommunicationsToo": true
+      },
+      "apps": [
+        {
+          "id": "zen-trabajo",
+          "label": "Zen · Trabajo",
+          "kind": "browser-zen",
+          "exePath": "C:\\Program Files\\Zen Browser\\zen.exe",
+          "processName": "zen.exe",
+          "workspace": "Oficina",
+          "container": "Oficina",
+          "open": ["https://github.com", "https://linear.app"],
+          "onEnter": "launch-or-focus",
+          "onExit": "keep",
+          "unloadInactiveTabs": true
+        },
+        {
+          "id": "spark",
+          "label": "Spark (correo laboral)",
+          "kind": "mail",
+          "exePath": "C:\\Users\\usuario\\AppData\\Local\\Programs\\Spark\\Spark.exe",
+          "processName": "spark.exe",
+          "onEnter": "launch-or-focus",
+          "onExit": "close"
+        },
+        {
+          "id": "vscode",
+          "label": "VS Code",
+          "kind": "generic",
+          "exePath": "C:\\Users\\usuario\\AppData\\Local\\Programs\\Microsoft VS Code\\Code.exe",
+          "processName": "code.exe",
+          "open": ["C:\\dev\\opencrosshair"],
+          "onEnter": "launch-or-focus",
+          "onExit": "minimize"
+        }
+      ],
+      "closeOnEnter": ["steam.exe"],
+      "layout": {
+        "capturedAt": "2026-11-19T10:41:00-03:00",
+        "windows": [
+          { "processName": "code.exe", "ordinal": 0, "show": "maximized", "rect": { "left": 0, "top": 0, "right": 1920, "bottom": 1040 } },
+          { "processName": "zen.exe", "ordinal": 0, "show": "maximized", "rect": { "left": 1920, "top": 0, "right": 3840, "bottom": 1040 } }
+        ]
+      }
+    },
+    {
+      "id": "gaming",
+      "name": "Gaming",
+      "icon": "🎮",
+      "enabled": true,
+      "trigger": { "modifiers": ["ctrl", "shift"], "key": "G", "vk": 71 },
+      "audio": {
+        "outputDeviceId": "{0.0.0.00000000}.{a1b2c3d4-0000-0000-0000-000000000002}",
+        "outputDeviceName": "Parlantes (Realtek)",
+        "setCommunicationsToo": false
+      },
+      "apps": [
+        {
+          "id": "zen-ocio",
+          "label": "Zen · Entretenimiento",
+          "kind": "browser-zen",
+          "exePath": "C:\\Program Files\\Zen Browser\\zen.exe",
+          "processName": "zen.exe",
+          "workspace": "Entretenimiento",
+          "container": "Personal",
+          "open": ["https://youtube.com"],
+          "onExit": "minimize",
+          "unloadInactiveTabs": true
+        },
+        {
+          "id": "discord",
+          "label": "Discord",
+          "kind": "chat",
+          "exePath": "C:\\Users\\usuario\\AppData\\Local\\Discord\\Update.exe",
+          "processName": "discord.exe",
+          "args": ["--processStart", "Discord.exe"],
+          "onEnter": "launch-or-focus",
+          "onExit": "close"
+        },
+        {
+          "id": "steam",
+          "label": "Steam",
+          "kind": "generic",
+          "exePath": "C:\\Program Files (x86)\\Steam\\steam.exe",
+          "processName": "steam.exe",
+          "onEnter": "launch-or-focus",
+          "onExit": "keep"
+        }
+      ],
+      "closeOnEnter": ["spark.exe", "code.exe"],
+      "layout": null
+    }
+  ]
+}
