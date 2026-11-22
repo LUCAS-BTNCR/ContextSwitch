@@ -1,13 +1,22 @@
 {
   "name": "contextswitch",
   "private": true,
-  "version": "0.3.0",
+  "version": "0.4.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "tauri": "tauri",
-    "ext:sign": "npx --yes web-ext@8 sign --source-dir extension-zen --channel unlisted --artifacts-dir release/extension --ignore-files register-host.ps1 contextswitch_bridge.json"
+    "test": "npm run test:ui && npm run test:ext && npm run test:rust",
+    "test:ui": "vitest run",
+    "test:ext": "node --test \"tests/extension/*.test.cjs\"",
+    "test:rust": "cargo test --manifest-path src-tauri/Cargo.toml",
+    "test:rust:real": "cargo test --manifest-path src-tauri/Cargo.toml --bin contextswitch -- --ignored --test-threads=1",
+    "test:e2e": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/e2e.ps1",
+    "coverage": "npm run coverage:ui && npm run coverage:ext && npm run coverage:rust",
+    "coverage:ui": "vitest run --coverage",
+    "coverage:ext": "node --test --experimental-test-coverage \"tests/extension/*.test.cjs\"",
+    "coverage:rust": "cargo llvm-cov --manifest-path src-tauri/Cargo.toml --html --output-dir coverage/rust && cargo llvm-cov report --manifest-path src-tauri/Cargo.toml --summary-only",    "ext:sign": "npx --yes web-ext@8 sign --source-dir extension-zen --channel unlisted --artifacts-dir release/extension --ignore-files register-host.ps1 contextswitch_bridge.json"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.0.0",
@@ -16,10 +25,15 @@
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.0.0",
+    "@testing-library/dom": "10.4.0",
+    "@testing-library/react": "16.1.0",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.3.1",
+    "@vitest/coverage-v8": "2.1.9",
+    "jsdom": "25.0.1",
     "typescript": "^5.5.0",
-    "vite": "^5.4.0"
+    "vite": "^5.4.0",
+    "vitest": "2.1.9"
   }
 }

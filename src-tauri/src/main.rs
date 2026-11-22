@@ -14,7 +14,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Mutex};
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::TrayIconBuilder;
-use tauri::{AppHandle, Emitter, Manager, State, WindowEvent};
+use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder, WindowEvent};
 
 struct AppState {
     path: PathBuf,
@@ -22,6 +22,19 @@ struct AppState {
     hook: Mutex<Option<HookHandle>>,
     undo: Mutex<Option<LayoutSnapshot>>,
     test_mode: AtomicBool,
+    /// false si profiles.json estaba corrupto y no se pudo apartar: no se escribe en disco.
+    persist: AtomicBool,
+    /// Avisos del arranque para la UI (ej. "se recuperó la configuración").
+    startup_warnings: Vec<String>,
+}
+
+impl AppState {
+    fn save(&self, config: &Config) -> anyhow::Result<()> {
+        if !self.persist.load(Ordering::Relaxed) {
+            anyhow::bail!("no se guarda: profiles.json estaba dañado y no se pudo apartar");
+        }
+        config.save(&self.path)
+    }
 }
 
 #[derive(Clone, Serialize)]
@@ -37,8 +50,12 @@ struct RunningApp { process_name: String, exe_path: String }
 fn get_config(s: State<AppState>) -> Config { s.config.lock().unwrap().clone() }
 
 #[tauri::command]
+fn get_startup_warnings(s: State<AppState>) -> Vec<String> { s.startup_warnings.clone() }
+
+#[tauri::command]
 fn save_config(app: AppHandle, s: State<AppState>, config: Config) -> Result<(), String> {
-    config.save(&s.path).map_err(|e| e.to_string())?;
+    let config = config.accept_from_ui(&s.config.lock().unwrap()); // el modo activo es del backend
+    s.save(&config).map_err(|e| e.to_string())?;
     set_autostart(config.settings.start_with_windows);
     let (b, c) = hotkey::bindings_from(&config);
     if let Some(h) = s.hook.lock().unwrap().as_ref() { h.reconfigure(b, c); }
@@ -104,6 +121,56 @@ fn activate_profile(app: AppHandle, id: String) -> Result<(), String> {
     Ok(())
 }
 
+/// Respuesta de la ventanita del arranque: `Some(id)` aplica ese modo, `None` = "no".
+/// En ambos casos se cierra (no vuelve a aparecer hasta el próximo inicio de Windows).
+#[tauri::command]
+fn picker_choose(app: AppHandle, id: Option<String>) {
+    if let Some(w) = app.get_webview_window("picker") { let _ = w.close(); }
+    if let Some(id) = id {
+        std::thread::spawn(move || { actions::ensure_com(); let _ = activate_profile(app, id); });
+    }
+}
+
+/// Desde la ventanita: cerrarla y abrir los Ajustes completos.
+#[tauri::command]
+fn picker_open_settings(app: AppHandle) {
+    if let Some(w) = app.get_webview_window("picker") { let _ = w.close(); }
+    show_settings(&app);
+}
+
+fn show_settings(app: &AppHandle) {
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.unminimize();
+        let _ = w.show();
+        let _ = w.set_focus();
+    }
+}
+
+/// Ventanita "¿Deseas aplicar algún contexto?" que aparece al iniciar con Windows.
+fn open_startup_picker(app: &AppHandle) -> tauri::Result<()> {
+    let n = {
+        let s = app.state::<AppState>();
+        let cfg = s.config.lock().unwrap();
+        cfg.profiles.iter().filter(|p| p.enabled).count()
+    };
+    if n == 0 { return Ok(()); } // sin modos no hay nada que preguntar
+    let height = (200 + 62 * n).min(640) as f64;
+    // Se crea oculta y se centra antes de mostrarla.
+    let w = WebviewWindowBuilder::new(app, "picker", WebviewUrl::App("index.html".into()))
+        .title("ContextSwitch")
+        .inner_size(400.0, height)
+        .resizable(false)
+        .maximizable(false)
+        .minimizable(false)
+        .always_on_top(true)
+        .visible(false)
+        .build()?;
+    let _ = w.center();
+    let _ = w.show();
+    let _ = w.set_focus();
+    Ok(())
+}
+
 // ── Activación ───────────────────────────────────────────────────────────────
 fn run_activation(app: &AppHandle, idx: u16, delta_ms: u32, from_hook: bool) {
     let s = app.state::<AppState>();
@@ -126,7 +193,7 @@ fn run_activation(app: &AppHandle, idx: u16, delta_ms: u32, from_hook: bool) {
     {
         let mut cfg = s.config.lock().unwrap();
         cfg.settings.active_profile_id = Some(next.id.clone());
-        let _ = cfg.save(&s.path);
+        let _ = s.save(&cfg);
     }
     let _ = app.emit("profile-activated", (&next.id, &report.warnings));
     rebuild_tray_menu(app);
@@ -175,7 +242,7 @@ fn set_autostart(on: bool) {
     unsafe {
         if on {
             let Ok(exe) = std::env::current_exe() else { return };
-            let val = HSTRING::from(format!("\"{}\"", exe.display()));
+            let val = HSTRING::from(autostart_command(&exe));
             let bytes = (val.len() + 1) * 2;
             let _ = RegSetKeyValueW(HKEY_CURRENT_USER, key, w!("ContextSwitch"), REG_SZ.0,
                                     Some(val.as_ptr() as *const _), bytes as u32);
@@ -183,6 +250,29 @@ fn set_autostart(on: bool) {
             let _ = RegDeleteKeyValueW(HKEY_CURRENT_USER, key, w!("ContextSwitch"));
         }
     }
+}
+
+/// Comando del autoarranque: con `--autostart` la app sabe que la abrió Windows
+/// (muestra la ventanita de modos) y no el usuario (muestra los Ajustes).
+fn autostart_command(exe: &std::path::Path) -> String { format!("\"{}\" --autostart", exe.display()) }
+
+/// Con "Iniciar con Windows" activado: crea la entrada si falta y migra la vieja
+/// (sin `--autostart`) si apunta a ESTE exe. No toca una que apunte a otro exe.
+fn refresh_autostart() {
+    use windows::core::w;
+    use windows::Win32::System::Registry::{RegGetValueW, HKEY_CURRENT_USER, RRF_RT_REG_SZ};
+    let Ok(exe) = std::env::current_exe() else { return };
+    let mut buf = [0u16; 1024];
+    let mut size = (buf.len() * 2) as u32;
+    let r = unsafe {
+        RegGetValueW(HKEY_CURRENT_USER, w!("Software\\Microsoft\\Windows\\CurrentVersion\\Run"), w!("ContextSwitch"),
+                     RRF_RT_REG_SZ, None, Some(buf.as_mut_ptr() as *mut _), Some(&mut size))
+    };
+    if r.is_err() { set_autostart(true); return; } // falta (ej. la borró un desinstalador): restaurarla
+    let len = buf.iter().position(|&c| c == 0).unwrap_or(buf.len());
+    let cur = String::from_utf16_lossy(&buf[..len]);
+    let points_here = cur.to_lowercase().contains(&exe.display().to_string().to_lowercase());
+    if points_here && cur != autostart_command(&exe) { set_autostart(true); }
 }
 
 /// Si hay un cs-bridge.exe junto al exe (instalación o carpeta portable), registra el host
@@ -219,18 +309,36 @@ fn config_path() -> PathBuf {
 fn main() {
     // Antes que nada: si ya había una instancia, se cierra y esta toma su lugar
     // (así nunca hay dos hooks de teclado ni dos íconos en la bandeja).
-    let quit_event = single_instance::take_over();
-
+    let args: Vec<String> = std::env::args().collect();
     // `ContextSwitch.exe --activate <id>`: arranca (reemplazando a la instancia anterior)
     // y activa ese modo. Útil para accesos directos y pruebas.
-    let activate_on_start: Option<String> = {
-        let args: Vec<String> = std::env::args().collect();
-        args.iter().position(|a| a == "--activate").and_then(|i| args.get(i + 1).cloned())
-    };
+    let activate_on_start: Option<String> =
+        args.iter().position(|a| a == "--activate").and_then(|i| args.get(i + 1).cloned());
+    // `--autostart`: la abrió Windows al iniciar sesión → ventanita de modos, no Ajustes.
+    let autostart = args.iter().any(|a| a == "--autostart");
+
+    // Reabrir la app (mismo exe) mientras ya corre en segundo plano: la que corre
+    // muestra los Ajustes y esta sale. No se reinicia nada.
+    if activate_on_start.is_none() && !autostart && single_instance::ask_running_to_show() {
+        return;
+    }
+    let quit_event = single_instance::take_over();
+    let show_event = single_instance::show_event();
 
     let path = config_path();
-    let config = Config::load(&path).unwrap_or_else(|_| Config::default_config());
+    let rec = Config::load_or_recover(&path);
+    let mut startup_warnings = Vec::new();
+    match (&rec.backup, rec.persist) {
+        (Some(b), _) => startup_warnings.push(format!(
+            "profiles.json estaba dañado: se guardó una copia en {} y se arrancó con la configuración por defecto.",
+            b.display())),
+        (None, false) => startup_warnings.push(
+            "profiles.json está dañado y no se pudo apartar: la app no va a guardar cambios hasta que lo arregles.".into()),
+        _ => {}
+    }
+    let (config, persist) = (rec.config, rec.persist);
     register_zen_host();
+    if config.settings.start_with_windows { refresh_autostart(); }
 
     tauri::Builder::default()
         .manage(AppState {
@@ -239,6 +347,8 @@ fn main() {
             hook: Mutex::new(None),
             undo: Mutex::new(None),
             test_mode: AtomicBool::new(false),
+            persist: AtomicBool::new(persist),
+            startup_warnings,
         })
         .setup(move |app| {
             let handle = app.handle().clone();
@@ -261,6 +371,16 @@ fn main() {
                 })?;
             }
 
+            // Otra copia del mismo exe pidió mostrar la interfaz: Ajustes completos, sin la ventanita.
+            if let Some(ev) = show_event {
+                let h = handle.clone();
+                std::thread::Builder::new().name("cs-show".into()).spawn(move || loop {
+                    single_instance::wait_show(ev);
+                    if let Some(w) = h.get_webview_window("picker") { let _ = w.close(); }
+                    show_settings(&h);
+                })?;
+            }
+
             // Hook + worker: el hook solo envía Fire; el worker ejecuta acciones.
             let (tx, rx) = mpsc::channel::<Fire>();
             let (b, c) = hotkey::bindings_from(&app.state::<AppState>().config.lock().unwrap());
@@ -280,7 +400,7 @@ fn main() {
                 .menu(&build_menu(&handle)?)
                 .on_menu_event(|app, ev| match ev.id.as_ref() {
                     "quit" => { actions::reveal_hidden_windows(); app.exit(0); }
-                    "settings" => if let Some(w) = app.get_webview_window("main") { let _ = w.show(); let _ = w.set_focus(); },
+                    "settings" => show_settings(app),
                     "undo" => { undo_layout(app.state::<AppState>()); }
                     id if id.starts_with("profile:") => {
                         let pid = id.trim_start_matches("profile:").to_string();
@@ -290,14 +410,25 @@ fn main() {
                     _ => {}
                 })
                 .build(app)?;
+
+            if autostart {
+                // Según el ajuste: ventanita de modos, o nada (oculta en la bandeja).
+                let ask = app.state::<AppState>().config.lock().unwrap().settings.show_startup_picker;
+                if ask { open_startup_picker(&handle)?; }
+            } else if activate_on_start.is_none() {
+                show_settings(&handle); // abierta a mano: interfaz completa
+            }
             Ok(())
         })
         .on_window_event(|w, ev| {
-            if let WindowEvent::CloseRequested { api, .. } = ev { api.prevent_close(); let _ = w.hide(); }
+            // Ajustes se oculta (la app sigue en la bandeja); la ventanita del arranque sí se cierra.
+            if let WindowEvent::CloseRequested { api, .. } = ev {
+                if w.label() == "main" { api.prevent_close(); let _ = w.hide(); }
+            }
         })
         .invoke_handler(tauri::generate_handler![
-            get_config, save_config, list_audio_devices, list_running_apps, app_icons, list_monitors, zen_bridge_connected,
-            capture_layout, undo_layout, set_test_mode, activate_profile
+            get_config, get_startup_warnings, save_config, list_audio_devices, list_running_apps, app_icons, list_monitors, zen_bridge_connected,
+            capture_layout, undo_layout, set_test_mode, activate_profile, picker_choose, picker_open_settings
         ])
         .run(tauri::generate_context!())
         .expect("error al iniciar ContextSwitch");

@@ -23,6 +23,10 @@ pub struct Settings {
     pub swallow_trigger: bool,
     #[serde(default)]
     pub start_with_windows: bool,
+    /// Al iniciar con Windows: true = ventanita "¿Deseas aplicar algún contexto?";
+    /// false = arranca oculta en la bandeja, sin mostrar nada.
+    #[serde(default = "d_true")]
+    pub show_startup_picker: bool,
     #[serde(default = "d_true")]
     pub show_toast_on_switch: bool,
     #[serde(default)]
@@ -54,6 +58,10 @@ pub struct Profile {
     /// Procesos que `close_others` nunca cierra (además del shell de Windows).
     #[serde(default)]
     pub keep_open: Vec<String>,
+    /// "Recordar cómo lo dejé": al salir se guarda qué apps había y dónde estaban sus
+    /// ventanas; al volver se reabren las que faltan y se restaura el layout.
+    #[serde(default)]
+    pub restore_session: bool,
     #[serde(default)]
     pub layout: Option<LayoutSnapshot>,
 }
@@ -173,6 +181,16 @@ pub enum ShowState { Normal, Maximized, Minimized }
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct Rect { pub left: i32, pub top: i32, pub right: i32, pub bottom: i32 }
 
+/// Resultado de [`Config::load_or_recover`].
+#[derive(Debug)]
+pub struct Recovery {
+    pub config: Config,
+    /// Dónde quedó el archivo corrupto, si hubo que apartarlo.
+    pub backup: Option<std::path::PathBuf>,
+    /// false = no se pudo apartar el archivo corrupto: NO escribir en disco.
+    pub persist: bool,
+}
+
 impl Config {
     pub fn load(path: &Path) -> anyhow::Result<Self> {
         if !path.exists() {
@@ -180,7 +198,38 @@ impl Config {
             c.save(path)?;
             return Ok(c);
         }
-        Ok(serde_json::from_str(&fs::read_to_string(path)?)?)
+        let raw = fs::read_to_string(path)?;
+        // El Bloc de notas / PowerShell 5.1 guardan UTF-8 con BOM: no es un archivo dañado.
+        Ok(serde_json::from_str(raw.trim_start_matches('\u{feff}'))?)
+    }
+
+    /// Carga para el arranque, sin riesgo de perder la configuración del usuario.
+    ///
+    /// Antes: si `profiles.json` estaba corrupto se usaba la config por defecto en memoria
+    /// y la primera activación la guardaba ENCIMA del archivo del usuario (bug A).
+    /// Ahora el archivo corrupto se aparta (`profiles.corrupt-<fecha>.json`) antes de
+    /// escribir nada; si ni siquiera se puede apartar, la app no escribe en disco.
+    pub fn load_or_recover(path: &Path) -> Recovery {
+        match Self::load(path) {
+            Ok(config) => Recovery { config, backup: None, persist: true },
+            Err(_) => {
+                let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
+                let backup = path.with_file_name(format!("profiles.corrupt-{stamp}.json"));
+                let moved = fs::rename(path, &backup).is_ok()
+                    || (fs::copy(path, &backup).is_ok() && fs::remove_file(path).is_ok());
+                let config = Self::default_config();
+                if moved { let _ = config.save(path); }
+                Recovery { config, backup: moved.then_some(backup), persist: moved }
+            }
+        }
+    }
+
+    /// Config que manda la UI al guardar. El modo activo lo maneja el backend: la UI
+    /// puede tener un valor viejo (cambiaste de modo con el atajo después de abrir
+    /// Ajustes) y antes lo pisaba, rompiendo las acciones de salida del modo (bug B).
+    pub fn accept_from_ui(mut self, current: &Config) -> Config {
+        self.settings.active_profile_id = current.settings.active_profile_id.clone();
+        self
     }
 
     /// Escritura atómica: tmp + rename (un crash nunca deja el JSON a medias).
@@ -207,6 +256,7 @@ impl Config {
                 double_tap_window_ms: 450,
                 swallow_trigger: true,
                 start_with_windows: false,
+                show_startup_picker: true,
                 show_toast_on_switch: true,
                 active_profile_id: None,
             },
@@ -214,14 +264,166 @@ impl Config {
                 Profile {
                     id: "trabajo".into(), name: "Trabajo".into(), icon: Some("💼".into()), enabled: true,
                     trigger: Trigger { modifiers: vec![Modifier::Ctrl, Modifier::Shift], key: "T".into(), vk: 0x54 },
-                    audio: None, apps: vec![], close_on_enter: vec![], close_others: false, keep_open: vec![], layout: None,
+                    audio: None, apps: vec![], close_on_enter: vec![], close_others: false, keep_open: vec![], restore_session: false, layout: None,
                 },
                 Profile {
                     id: "gaming".into(), name: "Gaming".into(), icon: Some("🎮".into()), enabled: true,
                     trigger: Trigger { modifiers: vec![Modifier::Ctrl, Modifier::Shift], key: "G".into(), vk: 0x47 },
-                    audio: None, apps: vec![], close_on_enter: vec![], close_others: false, keep_open: vec![], layout: None,
+                    audio: None, apps: vec![], close_on_enter: vec![], close_others: false, keep_open: vec![], restore_session: false, layout: None,
                 },
             ],
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    fn tmp() -> tempfile::TempDir { tempfile::tempdir().unwrap() }
+
+    // ── carga / guardado ─────────────────────────────────────────────────────
+    #[test]
+    fn load_inexistente_crea_el_default_en_disco() {
+        let d = tmp();
+        let p = d.path().join("sub").join("profiles.json");
+        let c = Config::load(&p).unwrap();
+        assert_eq!(c.profiles.len(), 2);
+        assert!(p.exists(), "tiene que crear el archivo (y la carpeta)");
+    }
+
+    #[test]
+    fn load_acepta_utf8_con_bom() {
+        let d = tmp();
+        let p = d.path().join("profiles.json");
+        let json = serde_json::to_string(&Config::default_config()).unwrap();
+        fs::write(&p, format!("\u{feff}{json}")).unwrap();
+        assert!(Config::load(&p).is_ok(), "un BOM al inicio no debe tratarse como archivo dañado");
+    }
+
+    #[test]
+    fn load_corrupto_es_error_no_default_silencioso() {
+        let d = tmp();
+        let p = d.path().join("profiles.json");
+        fs::write(&p, "{ esto no es json").unwrap();
+        assert!(Config::load(&p).is_err());
+    }
+
+    #[test]
+    fn campos_faltantes_toman_su_default() {
+        let d = tmp();
+        let p = d.path().join("profiles.json");
+        fs::write(&p, r#"{"version":1,"settings":{},"profiles":[
+            {"id":"a","name":"A","trigger":{"modifiers":["ctrl"],"key":"A","vk":65}}]}"#).unwrap();
+        let c = Config::load(&p).unwrap();
+        assert_eq!(c.settings.double_tap_window_ms, 500);
+        assert!(c.settings.swallow_trigger);
+        let a = &c.profiles[0];
+        assert!(a.enabled);
+        assert!(a.apps.is_empty() && a.close_on_enter.is_empty() && a.keep_open.is_empty());
+        assert!(!a.close_others && !a.restore_session);
+    }
+
+    #[test]
+    fn campos_desconocidos_se_ignoran() {
+        // Un profiles.json de una versión más nueva no tiene que romper la carga.
+        let d = tmp();
+        let p = d.path().join("profiles.json");
+        fs::write(&p, r#"{"version":1,"settings":{"futuro":true},"profiles":[],"otraCosa":1}"#).unwrap();
+        assert!(Config::load(&p).is_ok());
+    }
+
+    #[test]
+    fn save_es_atomico_y_no_deja_tmp() {
+        let d = tmp();
+        let p = d.path().join("profiles.json");
+        let mut c = Config::default_config();
+        c.save(&p).unwrap();
+        c.profiles[0].name = "Cambiado".into();
+        c.save(&p).unwrap();
+        assert!(!p.with_extension("json.tmp").exists());
+        assert_eq!(Config::load(&p).unwrap().profiles[0].name, "Cambiado");
+    }
+
+    #[test]
+    fn el_ejemplo_de_docs_coincide_con_el_modelo() {
+        // Si cambia el modelo y no el ejemplo (o al revés), este test avisa.
+        let raw = include_str!("../../docs/profiles.example.json");
+        let c: Config = serde_json::from_str(raw).expect("docs/profiles.example.json no carga");
+        let again: Config = serde_json::from_str(&serde_json::to_string(&c).unwrap()).unwrap();
+        assert_eq!(serde_json::to_value(&c).unwrap(), serde_json::to_value(&again).unwrap());
+        assert!(!c.profiles.is_empty());
+    }
+
+    // ── bug A: profiles.json dañado no se pisa ───────────────────────────────
+    #[test]
+    fn bug_a_archivo_danado_se_aparta_antes_de_escribir() {
+        let d = tmp();
+        let p = d.path().join("profiles.json");
+        let original = "{ \"version\": 1, roto";
+        fs::write(&p, original).unwrap();
+
+        let rec = Config::load_or_recover(&p);
+        let backup = rec.backup.expect("tiene que apartar el archivo dañado");
+        assert!(rec.persist);
+        assert_eq!(fs::read_to_string(&backup).unwrap(), original, "la copia es el archivo original intacto");
+        assert!(backup.file_name().unwrap().to_string_lossy().starts_with("profiles.corrupt-"));
+        assert!(Config::load(&p).is_ok(), "en su lugar queda una config válida");
+    }
+
+    #[test]
+    fn bug_a_si_no_se_puede_apartar_no_se_escribe() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let d = tmp();
+        let p = d.path().join("profiles.json");
+        fs::write(&p, "roto").unwrap();
+        // Otro proceso lo tiene abierto sin compartir: no se puede leer, mover ni copiar.
+        let _lock = fs::OpenOptions::new().read(true).share_mode(0).open(&p).unwrap();
+
+        let rec = Config::load_or_recover(&p);
+        assert!(!rec.persist, "sin poder apartarlo, la app NO debe escribir");
+        assert!(rec.backup.is_none());
+        drop(_lock);
+        assert_eq!(fs::read_to_string(&p).unwrap(), "roto", "el archivo del usuario queda intacto");
+    }
+
+    #[test]
+    fn archivo_valido_no_genera_copia() {
+        let d = tmp();
+        let p = d.path().join("profiles.json");
+        Config::default_config().save(&p).unwrap();
+        let rec = Config::load_or_recover(&p);
+        assert!(rec.persist && rec.backup.is_none());
+        assert_eq!(fs::read_dir(d.path()).unwrap().count(), 1);
+    }
+
+    // ── bug B: la UI no pisa el modo activo ──────────────────────────────────
+    #[test]
+    fn bug_b_la_ui_no_pisa_el_modo_activo() {
+        let mut backend = Config::default_config();
+        backend.settings.active_profile_id = Some("gaming".into()); // cambiado con el atajo
+        let mut desde_ui = Config::default_config();
+        desde_ui.settings.active_profile_id = Some("trabajo".into()); // valor viejo de la UI
+        desde_ui.profiles[0].name = "Editado en la UI".into();
+
+        let merged = desde_ui.accept_from_ui(&backend);
+        assert_eq!(merged.settings.active_profile_id.as_deref(), Some("gaming"));
+        assert_eq!(merged.profiles[0].name, "Editado en la UI", "el resto de la edición se conserva");
+    }
+
+    #[test]
+    fn bug_b_sin_modo_activo_en_backend_queda_sin_modo() {
+        let backend = Config::default_config(); // None
+        let mut ui = Config::default_config();
+        ui.settings.active_profile_id = Some("trabajo".into());
+        assert_eq!(ui.accept_from_ui(&backend).settings.active_profile_id, None);
+    }
+
+    #[test]
+    fn profile_index_busca_por_id() {
+        let c = Config::default_config();
+        assert_eq!(c.profile_index("gaming"), Some(1));
+        assert_eq!(c.profile_index("no-existe"), None);
     }
 }

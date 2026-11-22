@@ -1,6 +1,6 @@
 [package]
 name = "contextswitch"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2021"
 default-run = "contextswitch"
 
@@ -22,6 +22,9 @@ serde_json = "1"
 anyhow = "1"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 png = "0.17"
+
+[dev-dependencies]
+tempfile = "3"
 
 [target.'cfg(windows)'.dependencies]
 windows-core = "0.58"

@@ -77,6 +77,28 @@ export function SettingsTab({ profile, settings, conflict, onProfile, onSettings
         )}
       </section>
 
+      <section className="card">
+        <header className="card-head">
+          <span className="step">2c</span>
+          <div>
+            <h2>Al volver a este modo</h2>
+            <p className="muted">Retomá exactamente donde lo dejaste.</p>
+          </div>
+        </header>
+        <label className="switch">
+          <input type="checkbox" checked={!!profile.restoreSession}
+                 onChange={(e) => onProfile({ restoreSession: e.target.checked })} />
+          <span>
+            Recordar cómo lo dejé
+            <small>
+              Al salir de este modo se guarda qué apps tenías abiertas y dónde estaba cada ventana. Al volver se reabren
+              las que se cerraron y todo vuelve a su lugar. Zen ya conserva sus pestañas; los programas de Windows
+              (como el Administrador de tareas) no se reabren.
+            </small>
+          </span>
+        </label>
+      </section>
+
       <AudioDisplaySection
         audio={profile.audio}
         layout={profile.layout}

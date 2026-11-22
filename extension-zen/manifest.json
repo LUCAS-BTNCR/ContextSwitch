@@ -1,11 +1,11 @@
 {
   "manifest_version": 2,
   "name": "ContextSwitch Companion",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "Cambia de workspace, abre las URLs del modo y descarga pestañas inactivas. Lee las URLs de tus pestañas fijadas (Essentials) solo para reusarlas; nada sale de tu PC. Sin acceso a historial ni contraseñas.",
   "browser_specific_settings": {
     "gecko": { "id": "companion@contextswitch.app", "strict_min_version": "115.0" }
   },
   "permissions": ["nativeMessaging", "contextualIdentities", "cookies", "tabs", "sessions", "storage"],
-  "background": { "scripts": ["background.js"], "persistent": true }
+  "background": { "scripts": ["lib.js", "background.js"], "persistent": true }
 }

@@ -1,14 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "./api";
 import { MOD_LABEL } from "./keymap";
+import { HoverInfo } from "./settings/HoverInfo";
 import { PrivacyBadge } from "./settings/PrivacyBadge";
 import { SettingsTab } from "./settings/SettingsTab";
 import type { Config, Profile, Settings } from "./types";
 import "./settings/settings.css";
 
-type SaveState = "idle" | "saving" | "saved" | "error";
+import { findConflicts } from "./conflicts";
 
-const chordKey = (p: Profile) => [...p.trigger.modifiers].sort().join("+") + "|" + p.trigger.vk;
+type SaveState = "idle" | "saving" | "saved" | "error";
 
 export default function App() {
   const [config, setConfig] = useState<Config | null>(null);
@@ -23,6 +24,7 @@ export default function App() {
   // Avisos de la última activación (ej. una app que no se pudo cerrar).
   const [warnings, setWarnings] = useState<string[]>([]);
   useEffect(() => {
+    api.getStartupWarnings().then((w) => { if (w.length) setWarnings(w); }).catch(() => {});
     const off = api.onActivated(([, w]) => setWarnings(w));
     return () => { off.then((f) => f()); };
   }, []);
@@ -38,15 +40,7 @@ export default function App() {
     }, 500);
   };
 
-  const conflicts = useMemo(() => {
-    const seen = new Map<string, string>();
-    const out = new Map<string, string>();
-    for (const p of config?.profiles ?? []) {
-      const k = chordKey(p);
-      if (seen.has(k)) out.set(p.id, seen.get(k)!); else seen.set(k, p.name);
-    }
-    return out;
-  }, [config]);
+  const conflicts = useMemo(() => findConflicts(config?.profiles ?? []), [config]);
 
   if (!config) return <div className="boot">Cargando…</div>;
   const profile = config.profiles.find((p) => p.id === selected);
@@ -97,6 +91,15 @@ export default function App() {
                  onChange={(e) => patchSettings({ startWithWindows: e.target.checked })} />
           <span>Iniciar con Windows</span>
         </label>
+        {config.settings.startWithWindows && (
+          <HoverInfo text="Al iniciar Windows aparece una ventanita para elegir qué contexto aplicar (cerrarla = ninguno). Desactivado: la app arranca oculta en la bandeja, sin mostrar nada.">
+            <label className="switch small sub">
+              <input type="checkbox" checked={config.settings.showStartupPicker ?? true}
+                     onChange={(e) => patchSettings({ showStartupPicker: e.target.checked })} />
+              <span>Contexto al Iniciar</span>
+            </label>
+          </HoverInfo>
+        )}
         <div className="sidebar-foot">
           <PrivacyBadge compact />
           <span className={`save-state ${save}`}>

@@ -2,6 +2,6 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Mínimo indispensable: eventos + ventana. Sin plugins http/fs/shell → el frontend no puede tocar red ni disco.",
-  "windows": ["main"],
+  "windows": ["main", "picker"],
   "permissions": ["core:default"]
 }

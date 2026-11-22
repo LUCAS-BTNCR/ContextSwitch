@@ -135,3 +135,40 @@ pub fn windows_of(process_name: &str) -> Vec<TopWindow> {
     let p = process_name.to_lowercase();
     top_windows().into_iter().filter(|w| w.process_name == p).collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Solo lectura: no tocan ninguna ventana.
+    #[test]
+    fn process_running_detecta_el_propio_test_y_no_inventa() {
+        let me = std::env::current_exe().unwrap();
+        let name = me.file_name().unwrap().to_string_lossy().to_string();
+        assert!(process_running(&name));
+        assert!(process_running(&name.to_uppercase()), "sin distinguir mayúsculas");
+        assert!(!process_running("no-existe-cs-7f3a9.exe"));
+    }
+
+    #[test]
+    fn hwnd_invalido_no_es_de_nadie() {
+        assert!(!is_window_of(HWND(std::ptr::null_mut()), "zen.exe"));
+        assert!(!is_window_of(HWND(0x7fff_fff0 as _), "zen.exe"));
+    }
+
+    #[test]
+    fn is_elevated_no_falla_con_pids_raros() {
+        assert!(!is_elevated(0));
+        assert!(!is_elevated(u32::MAX));
+        let _ = is_elevated(std::process::id()); // no importa el valor: que no explote
+    }
+
+    #[test]
+    fn top_windows_no_incluye_ventanas_sin_titulo_ni_propias_del_shell_vacias() {
+        for w in top_windows() {
+            assert!(!w.title.is_empty());
+            assert!(!w.process_name.is_empty());
+            assert_eq!(w.process_name, w.process_name.to_lowercase());
+        }
+    }
+}

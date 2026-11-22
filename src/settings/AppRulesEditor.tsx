@@ -5,14 +5,14 @@ import { AppIcon } from "./AppIcon";
 import { LayoutPreview, PlacementPicker, type PreviewItem } from "./Placement";
 
 /** Copia de `arr` con `arr[i] = v`, rellenando con null si hace falta. */
-function setAt(arr: (Placement | null)[] | undefined, i: number, v: Placement | null) {
+export function setAt(arr: (Placement | null)[] | undefined, i: number, v: Placement | null) {
   const out = [...(arr ?? [])];
   while (out.length <= i) out.push(null);
   out[i] = v;
   return out;
 }
 
-const hostOf = (url: string) => {
+export const hostOf = (url: string) => {
   try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return url; }
 };
 
@@ -34,7 +34,7 @@ export function mergeZenRules(rules: AppRule[]): AppRule[] {
 }
 
 /** Qué dibujar en la vista previa: cada ventana con posición fija. */
-function previewItems(rules: AppRule[]): PreviewItem[] {
+export function previewItems(rules: AppRule[]): PreviewItem[] {
   const out: PreviewItem[] = [];
   for (const r of rules) {
     if (r.kind === "browser-zen" && r.separateWindows) {
@@ -50,7 +50,7 @@ function previewItems(rules: AppRule[]): PreviewItem[] {
 const MAIL = ["spark.exe", "outlook.exe", "olk.exe", "thunderbird.exe", "mailbird.exe", "hxoutlook.exe"];
 const CHAT = ["discord.exe", "slack.exe", "teams.exe", "ms-teams.exe", "telegram.exe", "whatsapp.exe"];
 
-function guessKind(proc: string): AppKind {
+export function guessKind(proc: string): AppKind {
   const p = proc.toLowerCase();
   if (p === "zen.exe") return "browser-zen";
   if (MAIL.includes(p)) return "mail";
@@ -63,7 +63,7 @@ function guessKind(proc: string): AppKind {
 const LAUNCHERS: Record<string, { label: string; from: RegExp; to: string }> = {
   "steamwebhelper.exe": { label: "Steam", from: /\\bin\\cef\\[^\\]+\\steamwebhelper\.exe$/i, to: "\\steam.exe" },
 };
-function launcherFor(app: RunningApp): string {
+export function launcherFor(app: RunningApp): string {
   const l = LAUNCHERS[app.processName.toLowerCase()];
   return l && l.from.test(app.exePath) ? app.exePath.replace(l.from, l.to) : app.exePath;
 }

@@ -5,3 +5,4 @@ src-tauri/gen/
 release/
 extension-zen/.amo-upload-uuid
 logs/
+coverage/

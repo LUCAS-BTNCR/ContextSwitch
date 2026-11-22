@@ -161,3 +161,23 @@ kbd.trigger { background: var(--accent); color: var(--accent-ink); border-color:
 
 .status { margin: 0; font-size: 12.5px; padding: 8px 10px; border-radius: 8px; }
 .status.ok { color: var(--ok); background: color-mix(in srgb, var(--ok) 10%, transparent); }
+
+/* Ventanita del inicio con Windows */
+html:has(.startup), html:has(.startup) body { background: var(--bg); }
+.startup { padding: 22px 22px 18px; display: flex; flex-direction: column; gap: 14px; }
+.startup h1 { margin: 0; font-size: 18px; letter-spacing: -.01em; }
+.startup-list { display: flex; flex-direction: column; gap: 6px; }
+.startup-item { display: grid; grid-template-columns: 30px 1fr auto; grid-template-areas: "i n b" "i c c";
+  text-align: left; border: 1px solid var(--line); background: var(--panel); padding: 9px 12px; border-radius: 10px; cursor: pointer; }
+.startup-item:hover, .startup-item:focus-visible { border-color: var(--accent); outline: none; }
+.startup-item .nav-icon { font-size: 20px; align-self: center; }
+.startup-foot { display: flex; justify-content: space-between; gap: 8px; margin-top: 4px; }
+.switch.sub { padding-left: 22px; }
+/* Opción con descripción en globito (ⓘ / hover 400 ms) */
+.hover-info { position: relative; display: flex; align-items: center; gap: 6px; }
+.info-dot { flex: none; width: 15px; height: 15px; border-radius: 50%; border: 1px solid var(--muted); color: var(--muted);
+  font: italic 700 10px/13px Georgia, serif; text-align: center; cursor: help; user-select: none; }
+.info-dot:hover, .info-dot:focus-visible { color: var(--accent); border-color: var(--accent); outline: none; }
+.info-tip { position: absolute; left: 8px; right: 0; bottom: calc(100% + 6px); z-index: 10; background: var(--panel); color: var(--ink);
+  border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font-size: 12px; line-height: 1.4;
+  box-shadow: 0 6px 20px rgba(0,0,0,.25); pointer-events: none; }

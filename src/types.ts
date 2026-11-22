@@ -62,6 +62,8 @@ export interface Profile {
   /** Al entrar, cierra (WM_CLOSE) toda app con ventana que no esté en `apps` ni en `keepOpen`. */
   closeOthers?: boolean;
   keepOpen?: string[];
+  /** "Recordar cómo lo dejé": al volver se reabren las apps y se restaura el layout de la última vez. */
+  restoreSession?: boolean;
   layout?: LayoutSnapshot | null;
 }
 
@@ -69,6 +71,8 @@ export interface Settings {
   doubleTapWindowMs: number;
   swallowTrigger: boolean;
   startWithWindows: boolean;
+  /** Al iniciar con Windows: preguntar qué contexto aplicar (true) o arrancar oculta (false). */
+  showStartupPicker?: boolean;
   showToastOnSwitch: boolean;
   activeProfileId?: string | null;
 }

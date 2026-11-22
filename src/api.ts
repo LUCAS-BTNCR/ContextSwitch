@@ -5,6 +5,7 @@ import type { AudioDevice, ChordEvent, Config, LayoutSnapshot, MonitorInfo, Runn
 // Único canal de la UI: IPC local con el backend Rust. La CSP bloquea cualquier red.
 export const api = {
   getConfig: () => invoke<Config>("get_config"),
+  getStartupWarnings: () => invoke<string[]>("get_startup_warnings"),
   saveConfig: (config: Config) => invoke<void>("save_config", { config }),
   listAudioDevices: () => invoke<AudioDevice[]>("list_audio_devices"),
   listRunningApps: () => invoke<RunningApp[]>("list_running_apps"),
@@ -15,6 +16,9 @@ export const api = {
   undoLayout: () => invoke<boolean>("undo_layout"),
   setTestMode: (on: boolean) => invoke<void>("set_test_mode", { on }),
   activateProfile: (id: string) => invoke<void>("activate_profile", { id }),
+  /** Ventanita del arranque: aplica el modo (o nada con null) y se cierra. */
+  pickerChoose: (id: string | null) => invoke<void>("picker_choose", { id }),
+  pickerOpenSettings: () => invoke<void>("picker_open_settings"),
   /** Payload del backend: [id del perfil, avisos]. */
   onActivated: (cb: (e: [string, string[]]) => void): Promise<UnlistenFn> =>
     listen<[string, string[]]>("profile-activated", (ev) => cb(ev.payload)),

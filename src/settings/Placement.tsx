@@ -1,7 +1,7 @@
 import type { MonitorInfo, Placement } from "../types";
 
 // Zonas predefinidas, en fracciones del área de trabajo del monitor.
-const ZONES: { id: string; label: string; x: number; y: number; w: number; h: number }[] = [
+export const ZONES: { id: string; label: string; x: number; y: number; w: number; h: number }[] = [
   { id: "full", label: "Pantalla completa", x: 0, y: 0, w: 1, h: 1 },
   { id: "l50", label: "Mitad izquierda", x: 0, y: 0, w: 0.5, h: 1 },
   { id: "r50", label: "Mitad derecha", x: 0.5, y: 0, w: 0.5, h: 1 },
@@ -16,7 +16,7 @@ const ZONES: { id: string; label: string; x: number; y: number; w: number; h: nu
 ];
 
 const near = (a: number, b: number) => Math.abs(a - b) < 0.005;
-const zoneOf = (p: Placement) => ZONES.find((z) => near(z.x, p.x) && near(z.y, p.y) && near(z.w, p.w) && near(z.h, p.h));
+export const zoneOf = (p: Placement) => ZONES.find((z) => near(z.x, p.x) && near(z.y, p.y) && near(z.w, p.w) && near(z.h, p.h));
 
 export const monitorLabel = (m: MonitorInfo) =>
   `Monitor ${m.index + 1} · ${m.width}×${m.height}${m.primary ? " (principal)" : ""}`;

@@ -11,14 +11,18 @@ fn main() -> std::io::Result<()> {
     use std::io::{BufRead, BufReader, Read, Write};
     use std::os::windows::io::FromRawHandle;
     use windows::core::HSTRING;
-    use windows::Win32::Foundation::{CloseHandle, ERROR_PIPE_CONNECTED};
+    use windows::Win32::Foundation::{CloseHandle, ERROR_NO_DATA, ERROR_PIPE_CONNECTED};
     use windows::Win32::Storage::FileSystem::PIPE_ACCESS_INBOUND;
     use windows::Win32::System::Pipes::{
         ConnectNamedPipe, CreateNamedPipeW, PIPE_READMODE_BYTE, PIPE_REJECT_REMOTE_CLIENTS,
         PIPE_TYPE_BYTE, PIPE_WAIT,
     };
 
-    const PIPE_NAME: &str = r"\\.\pipe\contextswitch-zen";
+    // CS_BRIDGE_PIPE solo lo usan los tests de integración (pipe propio, nunca el real).
+    let pipe_name = std::env::var("CS_BRIDGE_PIPE")
+        .ok()
+        .filter(|p| p.starts_with(r"\\.\pipe\contextswitch-test-"))
+        .unwrap_or_else(|| r"\\.\pipe\contextswitch-zen".to_string());
     const MAX_MSG: usize = 64 * 1024;
 
     // stdin: mensajes de la extensión (framing Native Messaging). Solo diagnóstico: se
@@ -35,6 +39,8 @@ fn main() -> std::io::Result<()> {
             let mut body = vec![0u8; n];
             if stdin.read_exact(&mut body).is_err() { break; }
             if let Some(p) = &log_path {
+                // La carpeta puede no existir (Zen lanzó el bridge antes que la app).
+                if let Some(d) = p.parent() { let _ = std::fs::create_dir_all(d); }
                 // Tope de 256 KB: si se pasa, se empieza de nuevo.
                 if std::fs::metadata(p).map(|m| m.len() > 256 * 1024).unwrap_or(false) {
                     let _ = std::fs::remove_file(p);
@@ -52,7 +58,7 @@ fn main() -> std::io::Result<()> {
     loop {
         let pipe = unsafe {
             CreateNamedPipeW(
-                &HSTRING::from(PIPE_NAME),
+                &HSTRING::from(pipe_name.as_str()),
                 PIPE_ACCESS_INBOUND,
                 PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT | PIPE_REJECT_REMOTE_CLIENTS,
                 1,
@@ -67,7 +73,10 @@ fn main() -> std::io::Result<()> {
         }
         unsafe {
             if let Err(e) = ConnectNamedPipe(pipe, None) {
-                if e.code() != ERROR_PIPE_CONNECTED.to_hresult() {
+                // PIPE_CONNECTED: el cliente se conectó antes de ConnectNamedPipe (está bien).
+                // NO_DATA: además ya escribió y CERRÓ; sus datos siguen en el buffer y se leen
+                // igual. Antes este caso se descartaba y el mensaje a Zen se perdía.
+                if e.code() != ERROR_PIPE_CONNECTED.to_hresult() && e.code() != ERROR_NO_DATA.to_hresult() {
                     // Cerrar la instancia: con nMaxInstances = 1 la próxima CreateNamedPipeW fallaría.
                     let _ = CloseHandle(pipe);
                     continue;

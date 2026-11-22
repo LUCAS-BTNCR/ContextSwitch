@@ -3,6 +3,7 @@ pub mod bridge;
 pub mod icons;
 pub mod layout;
 pub mod placement;
+pub mod session;
 pub mod window_ops;
 pub mod windows_enum;
 
@@ -31,6 +32,11 @@ pub fn activate(prev: Option<&Profile>, next: &Profile) -> Report {
     let mut r = Report::default();
     let uses = |p: &str| next.apps.iter().any(|a| a.process_name.eq_ignore_ascii_case(p));
 
+    // 0) "Recordar cómo lo dejé": foto del modo que se deja, ANTES de cerrar u ocultar nada.
+    if let Some(prev) = prev.filter(|p| p.restore_session) { session::save(&prev.id); }
+    let next_session = if next.restore_session { session::load(&next.id) } else { None };
+    let session_procs = next_session.as_ref().map(session::processes).unwrap_or_default();
+
     // 1) Lista de exclusión: cierre amable.
     for proc_name in &next.close_on_enter {
         window_ops::close_gracefully(proc_name);
@@ -46,6 +52,8 @@ pub fn activate(prev: Option<&Profile>, next: &Profile) -> Report {
         let me_elevated = windows_enum::is_elevated(std::process::id());
         let mut skipped_admin: Vec<String> = Vec::new();
         for w in windows_enum::top_windows().into_iter().filter(|w| !w.cloaked) {
+            // Las apps de la sesión guardada de este modo se quedan: se van a restaurar.
+            if session_procs.contains(&w.process_name) { continue; }
             match close_decision(next, &w.process_name, &w.class_name, own.as_deref()) {
                 Close::Keep => {}
                 Close::Close if !me_elevated && windows_enum::is_elevated(w.pid) => {
@@ -124,6 +132,16 @@ pub fn activate(prev: Option<&Profile>, next: &Profile) -> Report {
         r.undo_layout.get_or_insert(before);
     }
 
+    // 5b) "Recordar cómo lo dejé": reabrir lo que faltaba y dejar cada ventana donde estaba.
+    //     Va después de las posiciones fijas del modo: la sesión guardada manda.
+    if let Some(s) = &next_session {
+        r.undo_layout.get_or_insert_with(|| layout::capture("undo".into()));
+        let reopened = session::restore(s);
+        if !reopened.is_empty() {
+            r.warnings.push(format!("Sesión restaurada: se reabrieron {}.", reopened.join(", ")));
+        }
+    }
+
     // 6) Ventanas de Zen del modo anterior: AL FINAL. Si se ocultaran antes, la extensión
     //    podría volver a mostrar una al enfocar la ventana con la última pestaña usada del
     //    modo nuevo (cada ventana de Zen tiene copias de los Essentials de todos los wf).
@@ -187,12 +205,7 @@ fn wait_until(max: Duration, mut ok: impl FnMut() -> bool) -> bool {
 /// se valida que el HWND siga siendo una ventana viva de ese proceso.
 fn remembered() -> &'static Mutex<HashMap<String, isize>> {
     static M: OnceLock<Mutex<HashMap<String, isize>>> = OnceLock::new();
-    M.get_or_init(|| {
-        let map = std::fs::read_to_string(windows_file()).ok()
-            .and_then(|s| serde_json::from_str(&s).ok())
-            .unwrap_or_default();
-        Mutex::new(map)
-    })
+    M.get_or_init(|| Mutex::new(load_remembered_from(&windows_file())))
 }
 
 fn windows_file() -> std::path::PathBuf {
@@ -200,8 +213,20 @@ fn windows_file() -> std::path::PathBuf {
         .join("ContextSwitch").join("windows.json")
 }
 
+/// Archivo inexistente o dañado = no se recuerda ninguna ventana (nunca falla).
+fn load_remembered_from(path: &std::path::Path) -> HashMap<String, isize> {
+    std::fs::read_to_string(path).ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default()
+}
+
+fn save_remembered_to(path: &std::path::Path, map: &HashMap<String, isize>) -> std::io::Result<()> {
+    if let Some(d) = path.parent() { std::fs::create_dir_all(d)?; }
+    std::fs::write(path, serde_json::to_string_pretty(map).map_err(std::io::Error::other)?)
+}
+
 fn save_remembered(map: &HashMap<String, isize>) {
-    if let Ok(s) = serde_json::to_string_pretty(map) { let _ = std::fs::write(windows_file(), s); }
+    let _ = save_remembered_to(&windows_file(), map);
 }
 
 /// Al salir de un modo, sus ventanas de Zen:
@@ -458,6 +483,27 @@ mod tests {
         assert!(keeps_open(&p, "contextswitch-dev.exe", Some("contextswitch-dev.exe"))); // la propia app
         assert!(!keeps_open(&p, "chrome.exe", None));
         assert!(!keeps_open(&p, "code.exe", Some("contextswitch.exe")));
+    }
+
+    #[test]
+    fn ventanas_recordadas_ida_y_vuelta_en_disco() {
+        use super::{load_remembered_from, save_remembered_to};
+        let d = tempfile::tempdir().unwrap();
+        let p = d.path().join("nueva").join("windows.json");
+        assert!(load_remembered_from(&p).is_empty(), "sin archivo = nada recordado");
+        let mut m = std::collections::HashMap::new();
+        m.insert("trabajo|r1|0".to_string(), 123456isize);
+        m.insert("trabajo|r1|1".to_string(), -7isize);
+        save_remembered_to(&p, &m).unwrap();
+        assert_eq!(load_remembered_from(&p), m);
+    }
+
+    #[test]
+    fn ventanas_recordadas_archivo_danado_no_rompe() {
+        let d = tempfile::tempdir().unwrap();
+        let p = d.path().join("windows.json");
+        std::fs::write(&p, "[no es un mapa").unwrap();
+        assert!(super::load_remembered_from(&p).is_empty());
     }
 
     #[test]

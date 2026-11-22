@@ -15,6 +15,7 @@
         "doubleTapWindowMs": { "type": "integer", "minimum": 150, "maximum": 1000, "default": 500 },
         "swallowTrigger": { "type": "boolean", "default": true, "description": "Reserva el chord: la tecla disparadora no llega a la app en foco." },
         "startWithWindows": { "type": "boolean", "default": false },
+        "showStartupPicker": { "type": "boolean", "default": true, "description": "Al iniciar con Windows: true = pregunta qué contexto aplicar; false = arranca oculta en la bandeja." },
         "showToastOnSwitch": { "type": "boolean", "default": true },
         "activeProfileId": { "type": ["string", "null"] }
       }
@@ -43,6 +44,11 @@
           "type": "boolean",
           "default": false,
           "description": "Al entrar, WM_CLOSE a toda ventana cuyo proceso no esté en apps ni en keepOpen (el shell de Windows nunca se cierra)."
+        },
+        "restoreSession": {
+          "type": "boolean",
+          "default": false,
+          "description": "Recordar cómo lo dejé: al salir se guarda qué apps había y su layout (%APPDATA%\\ContextSwitch\\sessions\\<id>.json); al volver se reabren las que faltan y se restaura el layout."
         },
         "keepOpen": {
           "type": "array",

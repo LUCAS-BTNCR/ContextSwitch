@@ -171,4 +171,77 @@ mod real {
             let _ = DestroyWindow(hwnd);
         }
     }
+
+    /// Crea una ventana propia del test (nunca toca ventanas del usuario).
+    unsafe fn own_window(title: windows::core::PCWSTR) -> HWND {
+        let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+        CreateWindowExW(WINDOW_EX_STYLE(0), w!("STATIC"), title, WS_OVERLAPPEDWINDOW | WS_VISIBLE,
+                        120, 120, 420, 320, None, None, None, None).unwrap()
+    }
+
+    #[test]
+    #[ignore]
+    fn ocultar_y_volver_a_mostrar_real() {
+        use crate::actions::window_ops::{hide_hwnd, unhide_hwnd};
+        use windows::Win32::UI::WindowsAndMessaging::{IsIconic, IsWindowVisible};
+        unsafe {
+            let h = own_window(w!("cs-hide-test"));
+            // Al volver al modo: reaparece tal cual estaba (normal).
+            hide_hwnd(h);
+            assert!(!IsWindowVisible(h).as_bool(), "oculta = fuera de pantalla y de la barra");
+            unhide_hwnd(h, false);
+            assert!(IsWindowVisible(h).as_bool() && !IsIconic(h).as_bool());
+            // Al salir de ContextSwitch: vuelve a la barra minimizada, sin saltar al frente.
+            hide_hwnd(h);
+            unhide_hwnd(h, true);
+            assert!(IsWindowVisible(h).as_bool() && IsIconic(h).as_bool(), "vuelve minimizada");
+            // Una ventana minimizada al ocultarse reaparece minimizada (place/focus la restauran).
+            hide_hwnd(h);
+            unhide_hwnd(h, false);
+            assert!(IsWindowVisible(h).as_bool());
+            let _ = DestroyWindow(h);
+        }
+    }
+
+    #[test]
+    #[ignore]
+    fn layout_captura_y_restaura_real() {
+        use crate::actions::layout;
+        use crate::profiles::{LayoutSnapshot, Rect, ShowState, WindowPlacementRec};
+        unsafe {
+            let h = own_window(w!("cs-layout-test"));
+            let me = std::env::current_exe().unwrap().file_name().unwrap().to_string_lossy().to_lowercase();
+            let snap = layout::capture("t".into());
+            assert!(snap.windows.iter().any(|w| w.process_name == me), "la captura incluye la ventana del test");
+            // Restaurar SOLO la ventana del test a un rect conocido.
+            let target = LayoutSnapshot { captured_at: "t".into(), windows: vec![WindowPlacementRec {
+                process_name: me.clone(), title_contains: None, ordinal: 0, show: ShowState::Normal,
+                rect: Rect { left: 200, top: 210, right: 700, bottom: 610 } }] };
+            let before = layout::apply(&target);
+            assert!(!before.windows.is_empty(), "apply devuelve el estado previo (para Deshacer)");
+            let mut r = RECT::default();
+            GetWindowRect(h, &mut r).unwrap();
+            assert_eq!((r.right - r.left, r.bottom - r.top), (500, 400));
+            let _ = DestroyWindow(h);
+        }
+    }
+
+    #[test]
+    #[ignore]
+    fn zona_mas_chica_que_el_minimo_no_se_sale_por_la_derecha_real() {
+        // Ventana con ancho mínimo (simulado con un rect fijo más grande que la zona):
+        // `place` la corre hacia adentro en vez de dejarla salir del monitor.
+        unsafe {
+            let h = own_window(w!("cs-clamp-test"));
+            let mons = monitors();
+            let m = &mons[0];
+            let zone = RECT { left: m.work_left + m.work_width - 40, top: m.work_top,
+                              right: m.work_left + m.work_width, bottom: m.work_top + 300 };
+            place(h, zone); // STATIC acepta 40 px; el borde derecho nunca pasa el de la zona
+            let mut fr = RECT::default();
+            DwmGetWindowAttribute(h, DWMWA_EXTENDED_FRAME_BOUNDS, &mut fr as *mut _ as *mut _, 16).unwrap();
+            assert!(fr.right <= zone.right + 1, "derecha {} > zona {}", fr.right, zone.right);
+            let _ = DestroyWindow(h);
+        }
+    }
 }
