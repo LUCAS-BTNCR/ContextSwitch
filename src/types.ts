@@ -82,3 +82,11 @@ export interface Config { $schema?: string; version: 1; settings: Settings; prof
 export interface AudioDevice { id: string; name: string; isDefault: boolean }
 export interface RunningApp { processName: string; exePath: string }
 export interface ChordEvent { profileId: string; profileName: string; deltaMs: number; test: boolean }
+
+export interface UpdateInfo {
+  current: string;
+  latest: string;
+  available: boolean;
+  installerUrl?: string | null;
+  notes: string;
+}

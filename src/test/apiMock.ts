@@ -34,6 +34,11 @@ export function makeApiMock() {
     undoLayout: vi.fn(async () => false),
     setTestMode: vi.fn(async () => {}),
     activateProfile: vi.fn(async () => {}),
+    pickerChoose: vi.fn(async (_id: string | null) => {}),
+    pickerOpenSettings: vi.fn(async () => {}),
+    appVersion: vi.fn(async () => "0.4.0"),
+    checkUpdate: vi.fn(async () => ({ current: "0.4.0", latest: "0.4.0", available: false, installerUrl: null, notes: "" })),
+    installUpdate: vi.fn(async (_url: string) => {}),
     onChord: vi.fn(async () => () => {}),
     onActivated: vi.fn(async (cb: (e: [string, string[]]) => void) => { listeners.activated = cb; return () => {}; }),
   };

@@ -4,6 +4,7 @@ mod actions;
 mod hotkey;
 mod profiles;
 mod single_instance;
+mod updater;
 
 use hotkey::chord::Fire;
 use hotkey::hook::HookHandle;
@@ -168,6 +169,22 @@ fn open_startup_picker(app: &AppHandle) -> tauri::Result<()> {
     let _ = w.center();
     let _ = w.show();
     let _ = w.set_focus();
+    Ok(())
+}
+
+// ── Actualizaciones (solo cuando el usuario lo pide) ─────────────────────────
+#[tauri::command]
+fn app_version() -> String { env!("CARGO_PKG_VERSION").to_string() }
+
+#[tauri::command(async)]
+fn check_update() -> Result<updater::UpdateInfo, String> { updater::check().map_err(|e| e.to_string()) }
+
+/// Descarga e instala la versión nueva: la app se cierra y vuelve a abrirse actualizada.
+#[tauri::command(async)]
+fn install_update(app: AppHandle, url: String) -> Result<(), String> {
+    updater::download_and_launch(&url).map_err(|e| e.to_string())?;
+    actions::reveal_hidden_windows();
+    app.exit(0);
     Ok(())
 }
 
@@ -428,7 +445,8 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             get_config, get_startup_warnings, save_config, list_audio_devices, list_running_apps, app_icons, list_monitors, zen_bridge_connected,
-            capture_layout, undo_layout, set_test_mode, activate_profile, picker_choose, picker_open_settings
+            capture_layout, undo_layout, set_test_mode, activate_profile, picker_choose, picker_open_settings,
+            app_version, check_update, install_update
         ])
         .run(tauri::generate_context!())
         .expect("error al iniciar ContextSwitch");

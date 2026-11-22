@@ -4,6 +4,7 @@ import { MOD_LABEL } from "./keymap";
 import { HoverInfo } from "./settings/HoverInfo";
 import { PrivacyBadge } from "./settings/PrivacyBadge";
 import { SettingsTab } from "./settings/SettingsTab";
+import { UpdateButton } from "./settings/UpdateButton";
 import type { Config, Profile, Settings } from "./types";
 import "./settings/settings.css";
 
@@ -101,6 +102,7 @@ export default function App() {
           </HoverInfo>
         )}
         <div className="sidebar-foot">
+          <UpdateButton />
           <PrivacyBadge compact />
           <span className={`save-state ${save}`}>
             {save === "saving" ? "Guardando…" : save === "saved" ? "Guardado ✓" : save === "error" ? "Error al guardar" : ""}

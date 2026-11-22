@@ -1,7 +1,7 @@
 import { useState } from "react";
 
 const GUARANTEES = [
-  ["Sin red", "La app no tiene permisos de red: la ventana bloquea toda conexión (CSP) y el backend no incluye cliente HTTP."],
+  ["Sin red", "La ventana bloquea toda conexión (CSP) y el backend no incluye cliente HTTP. Única excepción: al tocar \"Buscar actualizaciones\" se consulta GitHub (con el curl de Windows). Nunca en segundo plano."],
   ["Sin cuentas", "Nunca pide contraseñas, tokens ni cookies, ni lee bases de datos de correo, chat o navegador."],
   ["Sin registro de teclas", "El hook compara cada tecla con tus combinaciones y la descarta al instante. No hay historial."],
   ["Un solo archivo", "Todo vive en %APPDATA%\\ContextSwitch\\profiles.json. Borralo y no queda rastro."],
