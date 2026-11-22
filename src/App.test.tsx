@@ -58,6 +58,28 @@ describe("<App/> (flujo de Ajustes con backend simulado)", () => {
     expect(await screen.findByText(/taskmgr\.exe/)).toBeTruthy();
   });
 
+  it("la marca 'activo' sigue al modo que activa el backend (atajo, bandeja, inicio)", async () => {
+    const cfg = sampleConfig();
+    cfg.settings.activeProfileId = "trabajo";
+    h.mock.api.getConfig.mockResolvedValue(cfg);
+    render(<App />);
+    await screen.findByDisplayValue("Trabajo");
+    const badgeOf = (name: string) => screen.getAllByText(name)
+      .map((el) => el.closest(".nav-item")).find(Boolean)!.querySelector(".badge");
+    expect(badgeOf("Trabajo")).not.toBeNull();
+    await waitFor(() => expect(h.mock.listeners.activated).toBeDefined());
+
+    act(() => h.mock.listeners.activated!(["gaming", []]));
+    expect(badgeOf("Gaming")).not.toBeNull();
+    expect(badgeOf("Trabajo")).toBeNull();
+
+    // Al volver a la ventana se re-sincroniza con el backend.
+    h.mock.api.getConfig.mockResolvedValue({ ...cfg, settings: { ...cfg.settings, activeProfileId: "trabajo" } });
+    act(() => { window.dispatchEvent(new Event("focus")); });
+    await waitFor(() => expect(badgeOf("Trabajo")).not.toBeNull());
+    expect(badgeOf("Gaming")).toBeNull();
+  });
+
   it("avisa si dos modos activos usan el mismo atajo", async () => {
     const cfg = sampleConfig();
     cfg.profiles[1].trigger = { ...cfg.profiles[0].trigger };

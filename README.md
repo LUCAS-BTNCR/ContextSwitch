@@ -6,7 +6,7 @@ Utilidad de bandeja del sistema para Windows que cambia tu entorno completo (app
 
 ## Instalación
 
-1. Descargá `ContextSwitch_0.4.0_x64-setup.exe` de [Releases](https://github.com/LUCAS-BTNCR/ContextSwitch/releases) y ejecutalo (por usuario, sin admin). Al iniciar con Windows pregunta qué contexto aplicar (cerrar la ventanita = ninguno); abrir la app de nuevo muestra los Ajustes de la que ya corre: nunca hay dos.
+1. Descargá `ContextSwitch_0.4.1_x64-setup.exe` de [Releases](https://github.com/LUCAS-BTNCR/ContextSwitch/releases) y ejecutalo (por usuario, sin admin). Al iniciar con Windows pregunta qué contexto aplicar (cerrar la ventanita = ninguno); abrir la app de nuevo muestra los Ajustes de la que ya corre: nunca hay dos.
 2. **Zen Browser** (opcional): instalá `contextswitch_companion-0.3.1.xpi` (firmada por Mozilla) desde `about:addons` → ⚙ → *Install Add-on From File…*. La app registra sola el puente local al arrancar.
 3. En Zen, cada workspace debe tener un **contenedor por defecto**; ese contenedor es el que se pone en la regla de Zen. Activá *Switch to workspace where container is set as default*.
 

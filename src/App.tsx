@@ -26,8 +26,20 @@ export default function App() {
   const [warnings, setWarnings] = useState<string[]>([]);
   useEffect(() => {
     api.getStartupWarnings().then((w) => { if (w.length) setWarnings(w); }).catch(() => {});
-    const off = api.onActivated(([, w]) => setWarnings(w));
+    const off = api.onActivated(([id, w]) => { setWarnings(w); setActive(id); });
     return () => { off.then((f) => f()); };
+  }, []);
+
+  // El modo activo lo decide el backend (atajo, bandeja, ventanita del inicio): la marca
+  // "activo" se actualiza con cada activación y se re-sincroniza al volver a la ventana.
+  const setActive = (id: string | null | undefined) =>
+    setConfig((c) => (c && c.settings.activeProfileId !== id ? { ...c, settings: { ...c.settings, activeProfileId: id } } : c));
+  useEffect(() => {
+    const sync = () => { api.getConfig().then((c) => setActive(c.settings.activeProfileId)).catch(() => {}); };
+    const onVisible = () => { if (document.visibilityState === "visible") sync(); };
+    window.addEventListener("focus", sync);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => { window.removeEventListener("focus", sync); document.removeEventListener("visibilitychange", onVisible); };
   }, []);
 
   // Autoguardado con debounce: el hook se reconfigura al instante y el área de prueba
