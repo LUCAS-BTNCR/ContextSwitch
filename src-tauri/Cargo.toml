@@ -1,6 +1,6 @@
 [package]
 name = "contextswitch"
-version = "0.4.1"
+version = "0.5.0"
 edition = "2021"
 default-run = "contextswitch"
 
@@ -21,13 +21,19 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 anyhow = "1"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
-png = "0.17"
 
 [dev-dependencies]
 tempfile = "3"
 
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-foundation = "0.3"
+objc2-app-kit = "0.3"
+core-foundation = "0.10"
+
 [target.'cfg(windows)'.dependencies]
 windows-core = "0.58"
+png = "0.17"
 
 [target.'cfg(windows)'.dependencies.windows]
 version = "0.58"

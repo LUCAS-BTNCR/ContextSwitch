@@ -1,8 +1,8 @@
-//! cs-bridge.exe — Native Messaging host para la extensión de Zen.
+//! cs-bridge — Native Messaging host para la extensión de Zen.
 //!
 //! - Lo lanza Zen (no ContextSwitch). Vive mientras la extensión mantenga el puerto.
-//! - Servidor de named pipe local → reenvía cada línea JSON a stdout con el framing
-//!   de Native Messaging (u32 LE + JSON).
+//! - Servidor local (named pipe en Windows, socket Unix en Mac) → reenvía cada línea
+//!   JSON a stdout con el framing de Native Messaging (u32 LE + JSON).
 //! - No abre red, no lee nada del navegador, no persiste nada.
 
 #[cfg(windows)]
@@ -95,5 +95,62 @@ fn main() -> std::io::Result<()> {
     }
 }
 
-#[cfg(not(windows))]
-fn main() {}
+#[cfg(unix)]
+fn main() -> std::io::Result<()> {
+    use std::io::{BufRead, BufReader, Read, Write};
+    use std::os::unix::fs::PermissionsExt;
+    use std::os::unix::net::UnixListener;
+    use std::path::PathBuf;
+    const MAX_MSG: usize = 64 * 1024;
+
+    let data = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(|| ".".into())
+        .join("Library").join("Application Support").join("ContextSwitch");
+    // CS_BRIDGE_SOCKET solo lo usan los tests (socket propio, nunca el real).
+    let sock = std::env::var_os("CS_BRIDGE_SOCKET").map(PathBuf::from)
+        .unwrap_or_else(|| data.join("zen-bridge.sock"));
+    let log_path = data.join("bridge.log");
+
+    // stdin: mensajes de la extensión (solo diagnóstico, a bridge.log). Si el navegador
+    // cierra stdin → salir (y borrar el socket: la app ve que la extensión no está).
+    let sock2 = sock.clone();
+    std::thread::spawn(move || {
+        let mut stdin = std::io::stdin();
+        loop {
+            let mut len = [0u8; 4];
+            if stdin.read_exact(&mut len).is_err() { break; }
+            let n = u32::from_le_bytes(len) as usize;
+            if n > MAX_MSG { break; }
+            let mut body = vec![0u8; n];
+            if stdin.read_exact(&mut body).is_err() { break; }
+            if let Some(d) = log_path.parent() { let _ = std::fs::create_dir_all(d); }
+            if std::fs::metadata(&log_path).map(|m| m.len() > 256 * 1024).unwrap_or(false) {
+                let _ = std::fs::remove_file(&log_path);
+            }
+            if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&log_path) {
+                let _ = f.write_all(&body);
+                let _ = f.write_all(b"\n");
+            }
+        }
+        let _ = std::fs::remove_file(&sock2);
+        std::process::exit(0);
+    });
+
+    if let Some(d) = sock.parent() { std::fs::create_dir_all(d)?; }
+    let _ = std::fs::remove_file(&sock); // de una sesión anterior de Zen
+    let listener = UnixListener::bind(&sock)?;
+    // Solo el usuario: ni otros usuarios de la Mac pueden escribirle a la extensión.
+    std::fs::set_permissions(&sock, std::fs::Permissions::from_mode(0o600))?;
+
+    let mut stdout = std::io::stdout().lock();
+    for conn in listener.incoming().map_while(Result::ok) {
+        for line in BufReader::new(conn).lines().map_while(Result::ok) {
+            if line.len() > MAX_MSG || serde_json::from_str::<serde_json::Value>(&line).is_err() {
+                continue; // solo JSON válido y acotado
+            }
+            stdout.write_all(&(line.len() as u32).to_le_bytes())?;
+            stdout.write_all(line.as_bytes())?;
+            stdout.flush()?;
+        }
+    }
+    Ok(())
+}

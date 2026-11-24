@@ -10,7 +10,7 @@
 //!
 //! CPU: el hilo duerme en GetMessageW; solo despierta por evento de teclado.
 
-use super::chord::{Binding, Engine, EngineConfig, Fire};
+use crate::hotkey::chord::{Binding, Engine, EngineConfig, Fire};
 use std::cell::RefCell;
 use std::sync::mpsc::{self, Sender};
 use std::thread;

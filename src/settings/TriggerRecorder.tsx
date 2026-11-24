@@ -2,6 +2,7 @@ import type React from "react";
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import { MODIFIER_CODES, MOD_LABEL, chordWarnings, codeToVk, modsFromEvent } from "../keymap";
+import { isMac } from "../platform";
 import type { ChordEvent, Modifier, Settings, Trigger } from "../types";
 
 type Rec =
@@ -81,7 +82,7 @@ export function TriggerRecorder({ trigger, settings, profileId, onTrigger, onSet
     if (rec.phase === "wait1") setRec({ phase: "wait1", live: modsFromEvent(e) });
   };
 
-  const warnings = chordWarnings(trigger.modifiers);
+  const warnings = chordWarnings(trigger.modifiers, isMac());
 
   return (
     <section className="card">
@@ -110,7 +111,7 @@ export function TriggerRecorder({ trigger, settings, profileId, onTrigger, onSet
         {rec.phase === "wait1" && (
           <>
             <Keycaps mods={rec.live} />
-            <span className="hint">{rec.live.length ? "…ahora la tecla disparadora" : "Mantené Ctrl / Shift / Alt / Win"}</span>
+            <span className="hint">{rec.live.length ? "…ahora la tecla disparadora" : (isMac() ? "Mantené ⌃ / ⇧ / ⌥ / ⌘" : "Mantené Ctrl / Shift / Alt / Win")}</span>
             <span className="dots"><i /><i /></span>
           </>
         )}

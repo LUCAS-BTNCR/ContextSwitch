@@ -9,6 +9,8 @@ import type { Config, Profile, Settings } from "./types";
 import "./settings/settings.css";
 
 import { findConflicts } from "./conflicts";
+import { AccessibilityBanner } from "./settings/AccessibilityBanner";
+import { defaultModifiers, isMac } from "./platform";
 
 type SaveState = "idle" | "saving" | "saved" | "error";
 
@@ -68,7 +70,7 @@ export default function App() {
       ...config,
       profiles: [...config.profiles, {
         id, name: "Nuevo modo", icon: "✨", enabled: true,
-        trigger: { modifiers: ["ctrl", "shift"], key: "N", vk: 0x4e },
+        trigger: { modifiers: defaultModifiers(), key: "N", vk: 0x4e },
         audio: null, apps: [], closeOnEnter: [], layout: null,
       }],
     });
@@ -102,10 +104,12 @@ export default function App() {
         <label className="switch small">
           <input type="checkbox" checked={config.settings.startWithWindows}
                  onChange={(e) => patchSettings({ startWithWindows: e.target.checked })} />
-          <span>Iniciar con Windows</span>
+          <span>{isMac() ? "Abrir al iniciar sesión" : "Iniciar con Windows"}</span>
         </label>
         {config.settings.startWithWindows && (
-          <HoverInfo text="Al iniciar Windows aparece una ventanita para elegir qué contexto aplicar (cerrarla = ninguno). Desactivado: la app arranca oculta en la bandeja, sin mostrar nada.">
+          <HoverInfo text={isMac()
+            ? "Al iniciar sesión aparece una ventanita para elegir qué contexto aplicar (cerrarla = ninguno). Desactivado: la app arranca oculta en la barra de menú, sin mostrar nada."
+            : "Al iniciar Windows aparece una ventanita para elegir qué contexto aplicar (cerrarla = ninguno). Desactivado: la app arranca oculta en la bandeja, sin mostrar nada."}>
             <label className="switch small sub">
               <input type="checkbox" checked={config.settings.showStartupPicker ?? true}
                      onChange={(e) => patchSettings({ showStartupPicker: e.target.checked })} />
@@ -123,6 +127,7 @@ export default function App() {
       </aside>
 
       <main className="content">
+        <AccessibilityBanner />
         {warnings.length > 0 && (
           <div className="warn activation-warn" role="status">
             <ul>{warnings.map((w, i) => <li key={i}>{w}</li>)}</ul>

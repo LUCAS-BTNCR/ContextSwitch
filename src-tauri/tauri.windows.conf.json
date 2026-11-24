@@ -1,0 +1,23 @@
+{
+  "build": {
+    "beforeBuildCommand": "npm run build && cargo build --release --bin cs-bridge --manifest-path src-tauri/Cargo.toml"
+  },
+  "bundle": {
+    "targets": [
+      "nsis"
+    ],
+    "windows": {
+      "nsis": {
+        "installerHooks": "src/platform/windows/installer/installer-hooks.nsh"
+      }
+    },
+    "resources": {
+      "target/release/cs-bridge.exe": "cs-bridge.exe"
+    },
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/icon.ico"
+    ]
+  }
+}

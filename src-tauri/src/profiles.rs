@@ -1,5 +1,6 @@
 //! Modelo de `profiles.json` (ver docs/profiles.schema.json).
 //! Único archivo de estado persistente. Ubicación: %APPDATA%\ContextSwitch\profiles.json
+//! (Windows) o ~/Library/Application Support/ContextSwitch/profiles.json (Mac).
 
 use serde::{Deserialize, Serialize};
 use std::{fs, io::Write, path::Path};
@@ -68,6 +69,7 @@ pub struct Profile {
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
+/// En Mac: `alt` = ⌥ Option y `win` = ⌘ Command.
 pub enum Modifier { Ctrl, Shift, Alt, Win }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -76,7 +78,8 @@ pub struct Trigger {
     pub modifiers: Vec<Modifier>,
     /// Etiqueta legible ("G", "1", "´").
     pub key: String,
-    /// Virtual-key code de Windows; es lo que compara el hook.
+    /// Virtual-key code de Windows; es lo que compara el hook. En Mac el hook traduce
+    /// el keycode de la tecla a este mismo código, así profiles.json sirve en los dos.
     pub vk: u32,
 }
 
@@ -93,7 +96,15 @@ pub struct AudioTarget {
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
-pub enum AppKind { Generic, BrowserZen, Mail, Chat }
+pub enum AppKind {
+    Generic,
+    BrowserZen,
+    /// Navegador sin workspaces (Chrome, Vivaldi, Brave, Edge, Firefox…): cada modo
+    /// tiene sus propias ventanas, que se abren con sus URLs y se guardan al salir.
+    Browser,
+    Mail,
+    Chat,
+}
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
@@ -109,9 +120,10 @@ pub struct AppRule {
     pub id: String,
     pub label: String,
     pub kind: AppKind,
-    /// Ruta absoluta al .exe (para lanzar).
+    /// Ruta absoluta al .exe (Windows) o a la .app (Mac), para lanzar.
     pub exe_path: String,
-    /// Nombre de proceso para encontrar ventanas ("zen.exe"). Comparación case-insensitive.
+    /// Nombre de proceso para encontrar ventanas ("zen.exe"; en Mac el nombre de la app,
+    /// "Google Chrome"). Comparación case-insensitive.
     pub process_name: String,
     #[serde(default)]
     pub args: Vec<String>,
@@ -131,7 +143,7 @@ pub struct AppRule {
     /// Zen: descargar pestañas inactivas al entrar.
     #[serde(default)]
     pub unload_inactive_tabs: bool,
-    /// Zen: cada URL de `open` en su propia ventana (si no, pestañas de una misma ventana).
+    /// Zen y navegadores: cada URL de `open` en su propia ventana (si no, pestañas de una misma ventana).
     #[serde(default)]
     pub separate_windows: bool,
     /// Posición de cada ventana. Con `separate_windows`, el índice i es la ventana de `open[i]`;
@@ -249,6 +261,8 @@ impl Config {
     }
 
     pub fn default_config() -> Self {
+        // Windows: Ctrl+Shift. Mac: ⌃⌥ (Ctrl+Shift+T/G chocan con atajos comunes de Mac).
+        let mods = if cfg!(target_os = "macos") { vec![Modifier::Ctrl, Modifier::Alt] } else { vec![Modifier::Ctrl, Modifier::Shift] };
         Self {
             schema: Some("./profiles.schema.json".into()),
             version: 1,
@@ -263,12 +277,12 @@ impl Config {
             profiles: vec![
                 Profile {
                     id: "trabajo".into(), name: "Trabajo".into(), icon: Some("💼".into()), enabled: true,
-                    trigger: Trigger { modifiers: vec![Modifier::Ctrl, Modifier::Shift], key: "T".into(), vk: 0x54 },
+                    trigger: Trigger { modifiers: mods.clone(), key: "T".into(), vk: 0x54 },
                     audio: None, apps: vec![], close_on_enter: vec![], close_others: false, keep_open: vec![], restore_session: false, layout: None,
                 },
                 Profile {
                     id: "gaming".into(), name: "Gaming".into(), icon: Some("🎮".into()), enabled: true,
-                    trigger: Trigger { modifiers: vec![Modifier::Ctrl, Modifier::Shift], key: "G".into(), vk: 0x47 },
+                    trigger: Trigger { modifiers: mods, key: "G".into(), vk: 0x47 },
                     audio: None, apps: vec![], close_on_enter: vec![], close_others: false, keep_open: vec![], restore_session: false, layout: None,
                 },
             ],
@@ -372,6 +386,7 @@ mod tests {
         assert!(Config::load(&p).is_ok(), "en su lugar queda una config válida");
     }
 
+    #[cfg(windows)]
     #[test]
     fn bug_a_si_no_se_puede_apartar_no_se_escribe() {
         use std::os::windows::fs::OpenOptionsExt;

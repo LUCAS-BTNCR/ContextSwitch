@@ -1,18 +1,30 @@
 # ContextSwitch
 
-Utilidad de bandeja del sistema para Windows que cambia tu entorno completo (apps, workspace del navegador, audio, layout de ventanas) con un **Chorded Double-Tap**: mantenés `Ctrl+Shift` y tocás `G` → `G`.
+Utilidad de bandeja del sistema para Windows (y Mac, beta) que cambia tu entorno completo (apps, workspace del navegador, audio, layout de ventanas) con un **Chorded Double-Tap**: mantenés `Ctrl+Shift` y tocás `G` → `G`.
 
 **100% local · sin red · sin cuentas · sin registro de teclas.**
 
 ## Instalación
 
-1. Descargá `ContextSwitch_0.4.1_x64-setup.exe` de [Releases](https://github.com/LUCAS-BTNCR/ContextSwitch/releases) y ejecutalo (por usuario, sin admin). Al iniciar con Windows pregunta qué contexto aplicar (cerrar la ventanita = ninguno); abrir la app de nuevo muestra los Ajustes de la que ya corre: nunca hay dos.
+1. Descargá `ContextSwitch_0.5.0_x64-setup.exe` de [Releases](https://github.com/LUCAS-BTNCR/ContextSwitch/releases) y ejecutalo (por usuario, sin admin). Al iniciar con Windows pregunta qué contexto aplicar (cerrar la ventanita = ninguno); abrir la app de nuevo muestra los Ajustes de la que ya corre: nunca hay dos.
 2. **Zen Browser** (opcional): instalá `contextswitch_companion-0.3.1.xpi` (firmada por Mozilla) desde `about:addons` → ⚙ → *Install Add-on From File…*. La app registra sola el puente local al arrancar.
 3. En Zen, cada workspace debe tener un **contenedor por defecto**; ese contenedor es el que se pone en la regla de Zen. Activá *Switch to workspace where container is set as default*.
 
 Detalles de Zen que la app respeta: reusa tus **Essentials** del mismo sitio en vez de abrir pestañas nuevas, y **nunca cierra ventanas de Zen** (cerrar una ventana borra los Essentials que contiene): al salir de un modo las oculta y al volver reaparecen. Para ventanas más angostas que 500 px (zonas de 25 %) Zen necesita un `userChrome.css` con `--window-min-width` menor.
 
 Línea de comandos: `ContextSwitch.exe --activate <id-del-modo>`. Diagnóstico de la extensión: `%APPDATA%\ContextSwitch\bridge.log`.
+
+### Mac (beta)
+
+1. Compilá con `npm run build:mac` (requiere Rust y Node): deja `ContextSwitch.app` y el `.dmg` en `release/mac/`. Arrastrá la app a Aplicaciones. Vive en la **barra de menú**, sin ícono en el Dock.
+2. **Permiso de Accesibilidad** (obligatorio): Ajustes del Sistema → Privacidad y seguridad → Accesibilidad → activá ContextSwitch. Sin él no funciona el atajo ni se pueden ubicar/minimizar ventanas; la app lo avisa con un botón que abre ese panel. Con builds sin firmar, cada build nueva hay que volver a activarlo.
+3. Atajo por defecto: **⌃⌥ + tecla, dos veces** (`profiles.json` es el mismo formato que en Windows: ⌥ = `alt`, ⌘ = `win`).
+4. **Chrome, Vivaldi, Brave, Edge, Firefox** (tipo `browser`): cada modo tiene **sus propias ventanas**. La primera vez se abren con las URLs del modo (opcional: una ventana por URL, cada una con su zona de pantalla); al salir del modo se minimizan o se cierran, y al volver reaparecen las mismas con lo que hayas navegado. No hace falta extensión: las ventanas se reconocen por su ID de ventana, sin leer títulos ni URLs.
+5. **Zen** funciona como en Windows (misma extensión firmada); la app registra sola el puente en `~/Library/Application Support/{Mozilla,zen}/NativeMessagingHosts/`.
+
+Diferencias con Windows: "Minimizar" una app = ocultarla (⌘H); "Cerrar" = salir (⌘Q) y la app pregunta si hay algo sin guardar; "Cerrar todo lo demás" nunca sale del Finder (solo cierra sus ventanas); "Iniciar con Windows" = LaunchAgent del usuario (`~/Library/LaunchAgents/app.contextswitch.plist`). Datos en `~/Library/Application Support/ContextSwitch/`.
+
+Excepción honesta (como `IPolicyConfig` en Windows): para reconocer una ventana se usa `_AXUIElementGetWindow` (privada, estable desde 10.6; la usan Rectangle, yabai y AltTab). Cambiar el audio en Mac sí es API pública (Core Audio).
 
 ---
 
@@ -42,9 +54,9 @@ Línea de comandos: `ContextSwitch.exe --activate <id-del-modo>`. Diagnóstico d
 | Capa | Archivo | Responsabilidad |
 |---|---|---|
 | Motor de chords | `src-tauri/src/hotkey/chord.rs` | Máquina de estados pura, sin Win32. 11 tests. |
-| Hook | `src-tauri/src/hotkey/hook.rs` | Hilo dedicado, `WH_KEYBOARD_LL`, mask key, reconfig por mensaje. |
+| Hook | `src-tauri/src/platform/windows/hook.rs` · `platform/mac/hook.rs` | Hilo dedicado, `WH_KEYBOARD_LL` / `CGEventTap`, reconfig por mensaje. |
 | Config | `src-tauri/src/profiles.rs` | Serde de `profiles.json`, escritura atómica. |
-| Acciones | `src-tauri/src/actions/*` | Cierre amable, foco/lanzamiento, audio, layout, puente Zen. |
+| Acciones | `src-tauri/src/platform/{windows,mac}/actions/*` | Cierre amable, foco/lanzamiento, audio, layout, puente Zen. |
 | Puente | `src-tauri/src/bin/cs-bridge.rs` + `extension-zen/` | Pipe local ↔ Native Messaging ↔ extensión. |
 | UI | `src/` | React/TS. Pestaña Ajustes con autoguardado. |
 
@@ -62,7 +74,7 @@ Línea de comandos: `ContextSwitch.exe --activate <id-del-modo>`. Diagnóstico d
 
 ### ⚠️ Dos excepciones honestas
 
-1. **Audio predeterminado.** Windows **no tiene API pública** para cambiar el dispositivo de salida por defecto. Se usa `IPolicyConfig` (COM no documentado, estable desde Vista; lo usan EarTrumpet, SoundVolumeView y AudioDeviceCmdlets). Quedó aislado en `actions/audio.rs`. Enumerar dispositivos sí usa la API pública.
+1. **Audio predeterminado.** Windows **no tiene API pública** para cambiar el dispositivo de salida por defecto. Se usa `IPolicyConfig` (COM no documentado, estable desde Vista; lo usan EarTrumpet, SoundVolumeView y AudioDeviceCmdlets). Quedó aislado en `platform/windows/actions/audio.rs`. Enumerar dispositivos sí usa la API pública.
 2. **Workspaces de Zen.** Zen no expone sus workspaces a WebExtensions. El puente usa lo que sí es público: Zen tiene la opción *"Switch to workspace where container is set as default when opening container tabs"*. Si cada workspace tiene un contenedor por defecto, abrir o activar una pestaña de ese contenedor salta al workspace. Por eso cada regla de Zen tiene `workspace` (nombre visible) + `container` (lo que usa el puente).
 
 ---
@@ -129,7 +141,7 @@ Tests (`cargo test` o `rustc --test src/hotkey/chord.rs`): disparo en el segundo
 ### Domingo tarde (2–3 h) · Pulido y release
 - [ ] Toast al cambiar de modo (falta `tauri-plugin-notification`). Hechos: tooltip con el modo activo y check ✓ en el menú de la bandeja.
 - [ ] Iniciar con Windows (ya escribe `HKCU\...\Run`).
-- [x] `npm run tauri build` → instalador NSIS en `src-tauri\target\release\bundle\nsis\`. Ya incluye `cs-bridge.exe`.
+- [x] `npm run build:windows` → instalador NSIS en `release\windows\`. Ya incluye `cs-bridge.exe`.
 - [ ] Probar en una sesión limpia: borrar `%APPDATA%\ContextSwitch` y arrancar de cero.
 
 ### Fuera del MVP
@@ -139,16 +151,35 @@ Plugin `single-instance`, exportar/importar perfiles, perfiles por monitor conec
 
 ## Estructura
 
+Dos apartados por sistema; todo lo demás es compartido.
+
 ```
 contextswitch/
 ├─ src-tauri/
-│  ├─ src/main.rs              tray, comandos, worker, autostart
-│  ├─ src/profiles.rs
-│  ├─ src/hotkey/{mod,chord,hook}.rs
-│  ├─ src/actions/{mod,window_ops,windows_enum,audio,layout,bridge}.rs
-│  ├─ src/bin/cs-bridge.rs
-│  ├─ capabilities/default.json, tauri.conf.json, Cargo.toml
-├─ src/                        React (App, settings/*, keymap, api, types)
+│  ├─ src/main.rs              tray, comandos, worker (compartido)
+│  ├─ src/profiles.rs, paths.rs, updater.rs
+│  ├─ src/hotkey/{mod,chord}.rs           motor del atajo (puro, compartido)
+│  ├─ src/actions/{mod,protocol}.rs       interfaz común + mensajes a la extensión
+│  ├─ src/platform/
+│  │  ├─ windows/              ── APARTADO WINDOWS ──
+│  │  │  ├─ actions/           ventanas Win32, audio (IPolicyConfig), layout, pipe de Zen…
+│  │  │  ├─ hook.rs            WH_KEYBOARD_LL
+│  │  │  ├─ system.rs          autoarranque (registro), host de Native Messaging
+│  │  │  ├─ single_instance.rs mutex + eventos con nombre
+│  │  │  ├─ e2e.ps1            prueba de punta a punta
+│  │  │  └─ installer/         build.ps1 (.exe) + installer-hooks.nsh
+│  │  └─ mac/                  ── APARTADO MAC ──
+│  │     ├─ actions/           Accesibilidad, NSWorkspace, Core Audio, socket de Zen…
+│  │     ├─ hook.rs, keys.rs   CGEventTap + teclas de Mac → códigos de Windows
+│  │     ├─ system.rs          LaunchAgent, host de Native Messaging, permisos
+│  │     ├─ single_instance.rs socket Unix
+│  │     └─ installer/         build.sh (.app + .dmg)
+│  ├─ src/bin/cs-bridge.rs     puente (pipe en Windows, socket en Mac)
+│  ├─ tauri.conf.json          compartido
+│  ├─ tauri.windows.conf.json  instalador NSIS
+│  └─ tauri.macos.conf.json    .app + .dmg
+├─ src/                        React (App, settings/*, keymap, platform, api, types)
 ├─ extension-zen/              manifest, background.js, register-host.ps1
-└─ docs/                       profiles.schema.json, profiles.example.json
+├─ docs/                       profiles.schema.json, profiles.example.json
+└─ release/{windows,mac}/      salida de `npm run build:windows` / `npm run build:mac`
 ```

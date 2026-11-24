@@ -32,12 +32,22 @@ export function modsFromEvent(e: KeyboardEvent | React.KeyboardEvent): Modifier[
   return m;
 }
 
+/** Etiquetas de los modificadores. En Mac, initPlatform las cambia por ⌃ ⇧ ⌥ ⌘. */
 export const MOD_LABEL: Record<Modifier, string> = { ctrl: "Ctrl", shift: "Shift", alt: "Alt", win: "Win" };
 
-/** Advertencias de UX para combinaciones problemáticas. */
-export function chordWarnings(mods: Modifier[]): string[] {
+/** Advertencias de UX para combinaciones problemáticas. `mac`: reglas del teclado de Mac. */
+export function chordWarnings(mods: Modifier[], mac = false): string[] {
   const w: string[] = [];
   const s = new Set(mods);
+  if (mac) {
+    if (s.has("win") && !s.has("ctrl") && !s.has("alt"))
+      w.push("Muchos ⌘+tecla y ⌘⇧+tecla ya son atajos de macOS y de las apps; probá con el área de prueba antes de guardar.");
+    if (s.has("alt") && !s.has("ctrl") && !s.has("win") && mods.length <= 2)
+      w.push("⌥+tecla escribe caracteres especiales (∂, ©, ¡…): dejá activado “Reservar combinación” para que no se escriban.");
+    if (mods.length === 1 && s.has("shift"))
+      w.push("Solo ⇧ interfiere con la escritura normal (mayúsculas). Sumá otro modificador.");
+    return w;
+  }
   if (s.has("ctrl") && s.has("alt") && !s.has("shift") && !s.has("win"))
     w.push("Ctrl+Alt equivale a AltGr en teclados en español: puede chocar con @, #, [ ] …");
   if (s.has("win"))
