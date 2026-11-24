@@ -1,0 +1,35 @@
+name: Tests
+
+# Tests en cada push a main y en cada PR. No compila instaladores ni publica nada.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - run: npm ci
+
+      - name: Tests
+        shell: pwsh
+        run: |
+          npm run test:ui; if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          npm run test:ext; if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          New-Item -ItemType Directory -Force src-tauri\target\release | Out-Null
+          if (-not (Test-Path src-tauri\target\release\cs-bridge.exe)) { New-Item -ItemType File src-tauri\target\release\cs-bridge.exe | Out-Null }
+          npm run test:rust; if ($LASTEXITCODE) { exit $LASTEXITCODE }

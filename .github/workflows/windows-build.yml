@@ -1,0 +1,61 @@
+name: Build Windows
+
+# Compila el instalador de Windows y lo sube a la release del tag.
+# Se dispara solo al publicar una release, o a mano desde Actions eligiendo el tag.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag de la release (ej. v0.5.0)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    env:
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - run: npm ci
+
+      - name: Tests
+        shell: pwsh
+        run: |
+          npm run test:ui; if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          npm run test:ext; if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          New-Item -ItemType Directory -Force src-tauri\target\release | Out-Null
+          if (-not (Test-Path src-tauri\target\release\cs-bridge.exe)) { New-Item -ItemType File src-tauri\target\release\cs-bridge.exe | Out-Null }
+          npm run test:rust; if ($LASTEXITCODE) { exit $LASTEXITCODE }
+
+      - name: Build instalador
+        run: npm run build:windows
+
+      - name: Subir el instalador a la release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$env:TAG" (Get-ChildItem release\windows\*-setup.exe).FullName --clobber
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ContextSwitch-windows
+          path: release/windows/*-setup.exe
