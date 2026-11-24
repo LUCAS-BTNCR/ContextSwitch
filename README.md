@@ -16,7 +16,7 @@ Línea de comandos: `ContextSwitch.exe --activate <id-del-modo>`. Diagnóstico d
 
 ### Mac (beta)
 
-1. Compilá con `npm run build:mac` (requiere Rust y Node): deja `ContextSwitch.app` y el `.dmg` en `release/mac/`. Arrastrá la app a Aplicaciones. Vive en la **barra de menú**, sin ícono en el Dock.
+1. Descargá `ContextSwitch_<versión>_aarch64.dmg` de [Releases](https://github.com/LUCAS-BTNCR/ContextSwitch/releases) (Apple Silicon; lo compila GitHub Actions) y arrastrá la app a Aplicaciones. Como no está firmada por Apple, la primera vez corré en Terminal `xattr -cr /Applications/ContextSwitch.app` (si no, macOS dice que "está dañada"). También podés compilarla con `npm run build:mac` (requiere Rust y Node): deja `ContextSwitch.app` y el `.dmg` en `release/mac/`. Vive en la **barra de menú**, sin ícono en el Dock.
 2. **Permiso de Accesibilidad** (obligatorio): Ajustes del Sistema → Privacidad y seguridad → Accesibilidad → activá ContextSwitch. Sin él no funciona el atajo ni se pueden ubicar/minimizar ventanas; la app lo avisa con un botón que abre ese panel. Con builds sin firmar, cada build nueva hay que volver a activarlo.
 3. Atajo por defecto: **⌃⌥ + tecla, dos veces** (`profiles.json` es el mismo formato que en Windows: ⌥ = `alt`, ⌘ = `win`).
 4. **Chrome, Vivaldi, Brave, Edge, Firefox** (tipo `browser`): cada modo tiene **sus propias ventanas**. La primera vez se abren con las URLs del modo (opcional: una ventana por URL, cada una con su zona de pantalla); al salir del modo se minimizan o se cierran, y al volver reaparecen las mismas con lo que hayas navegado. No hace falta extensión: las ventanas se reconocen por su ID de ventana, sin leer títulos ni URLs.
