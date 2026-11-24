@@ -100,7 +100,14 @@ pub fn parse_release(json: &[u8], current: &str) -> Result<UpdateInfo> {
 }
 
 pub fn check() -> Result<UpdateInfo> {
-    let body = run_curl(&["-H", "Accept: application/vnd.github+json", LATEST_API])?;
+    let body = run_curl(&["-H", "Accept: application/vnd.github+json", LATEST_API]).map_err(|e| {
+        // GitHub responde 404 en `releases/latest` si el repo no tiene ninguna release publicada.
+        if e.to_string().contains("404") {
+            anyhow!("todavía no hay ninguna versión publicada en GitHub Releases")
+        } else {
+            e
+        }
+    })?;
     parse_release(&body, &current_version())
 }
 
