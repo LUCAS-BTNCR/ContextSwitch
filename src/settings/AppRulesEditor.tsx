@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
 import type { AppKind, AppRule, ExitAction, MonitorInfo, Placement, RunningApp } from "../types";
+import { isMac } from "../platform";
 import { AppIcon } from "./AppIcon";
 import { LayoutPreview, PlacementPicker, type PreviewItem } from "./Placement";
 
@@ -33,11 +34,14 @@ export function mergeZenRules(rules: AppRule[]): AppRule[] {
   return rules.filter((r) => r.kind !== "browser-zen" || r === zen[0]).map((r) => (r === zen[0] ? merged : r));
 }
 
+/** Navegadores que pueden abrir una ventana por URL (Zen siempre; los demás, solo en Mac). */
+export const hasWindowsPerUrl = (r: AppRule) => r.kind === "browser-zen" || r.kind === "browser";
+
 /** Qué dibujar en la vista previa: cada ventana con posición fija. */
 export function previewItems(rules: AppRule[]): PreviewItem[] {
   const out: PreviewItem[] = [];
   for (const r of rules) {
-    if (r.kind === "browser-zen" && r.separateWindows) {
+    if (hasWindowsPerUrl(r) && r.separateWindows) {
       r.open.forEach((url, i) => { const p = r.placements?.[i]; if (p) out.push({ label: hostOf(url), place: p }); });
     } else {
       const p = r.placements?.[0];
@@ -47,12 +51,18 @@ export function previewItems(rules: AppRule[]): PreviewItem[] {
   return out;
 }
 
-const MAIL = ["spark.exe", "outlook.exe", "olk.exe", "thunderbird.exe", "mailbird.exe", "hxoutlook.exe"];
-const CHAT = ["discord.exe", "slack.exe", "teams.exe", "ms-teams.exe", "telegram.exe", "whatsapp.exe"];
+const MAIL = ["spark.exe", "outlook.exe", "olk.exe", "thunderbird.exe", "mailbird.exe", "hxoutlook.exe",
+  "spark", "spark desktop", "mail", "microsoft outlook", "thunderbird", "mimestream", "airmail 5"];
+const CHAT = ["discord.exe", "slack.exe", "teams.exe", "ms-teams.exe", "telegram.exe", "whatsapp.exe",
+  "discord", "slack", "microsoft teams", "telegram", "whatsapp", "signal", "messages"];
+// Navegadores sin workspaces (nombres de app en Mac). En Windows siguen como app común.
+const BROWSERS = ["google chrome", "google chrome canary", "chromium", "vivaldi", "brave browser", "microsoft edge",
+  "opera", "arc", "firefox", "firefox developer edition", "firefox nightly", "librewolf", "waterfox", "floorp"];
 
 export function guessKind(proc: string): AppKind {
   const p = proc.toLowerCase();
-  if (p === "zen.exe") return "browser-zen";
+  if (p === "zen.exe" || p === "zen" || p === "zen browser") return "browser-zen";
+  if (BROWSERS.includes(p)) return "browser";
   if (MAIL.includes(p)) return "mail";
   if (CHAT.includes(p)) return "chat";
   return "generic";
@@ -74,6 +84,21 @@ const EXIT_OPTIONS:{ value: ExitAction; label: string; hint: string }[] = [
   { value: "close", label: "Cerrar pidiendo guardar", hint: "WM_CLOSE: la app muestra su diálogo" },
 ];
 
+/** Opciones de salida en Mac: los nombres cambian según la app. */
+function exitOptions(r: AppRule): { value: ExitAction; label: string; hint: string }[] {
+  if (!isMac()) return EXIT_OPTIONS;
+  const windows = r.kind === "browser" || (r.kind === "browser-zen" && r.separateWindows);
+  return windows ? [
+    { value: "keep", label: "Dejar abiertas", hint: "Las ventanas de este modo no se tocan" },
+    { value: "minimize", label: "Minimizar sus ventanas", hint: "Van al Dock; al volver al modo reaparecen" },
+    { value: "close", label: "Cerrar sus ventanas", hint: "Al volver al modo se abren de nuevo con estas URLs" },
+  ] : [
+    { value: "keep", label: "Dejar abierta", hint: "No se toca" },
+    { value: "minimize", label: "Ocultar (⌘H)", hint: "La app sigue abierta, sin ventanas a la vista" },
+    { value: "close", label: "Salir pidiendo guardar (⌘Q)", hint: "La app muestra su diálogo si hay algo sin guardar" },
+  ];
+}
+
 const newId = () => Math.random().toString(36).slice(2, 9);
 
 interface Props { rules: AppRule[]; onChange: (rules: AppRule[]) => void }
@@ -92,7 +117,9 @@ export function AppRulesEditor({ rules, onChange }: Props) {
   const remove = (id: string) => onChange(rules.filter((r) => r.id !== id));
 
   const add = (app: RunningApp) => {
-    const kind = guessKind(app.processName);
+    // En Windows los navegadores comunes no tienen ventanas por modo (todavía): app común.
+    const guessed = guessKind(app.processName);
+    const kind = guessed === "browser" && !isMac() ? "generic" : guessed;
     onChange([...rules, {
       id: newId(),
       label: LAUNCHERS[app.processName.toLowerCase()]?.label ?? app.processName.replace(/\.exe$/i, ""),
@@ -103,6 +130,7 @@ export function AppRulesEditor({ rules, onChange }: Props) {
       onEnter: "launch-or-focus",
       onExit: "keep",
       unloadInactiveTabs: kind === "browser-zen",
+      separateWindows: kind === "browser" ? false : undefined,
     }]);
     setPicking(false);
   };
@@ -133,11 +161,13 @@ export function AppRulesEditor({ rules, onChange }: Props) {
             </div>
 
             <div className="grid2">
-              <label className="field">
-                <span>{r.kind === "browser-zen" ? "Workspace de Zen" : "Workspace / Perfil (opcional)"}</span>
-                <input placeholder="ej. Entretenimiento" value={r.workspace ?? ""}
-                       onChange={(e) => update(r.id, { workspace: e.target.value || null })} />
-              </label>
+              {r.kind !== "browser" && (
+                <label className="field">
+                  <span>{r.kind === "browser-zen" ? "Workspace de Zen" : "Workspace / Perfil (opcional)"}</span>
+                  <input placeholder="ej. Entretenimiento" value={r.workspace ?? ""}
+                         onChange={(e) => update(r.id, { workspace: e.target.value || null })} />
+                </label>
+              )}
               {r.kind === "browser-zen" ? (
                 <label className="field">
                   <span>Contenedor por defecto del workspace</span>
@@ -146,13 +176,20 @@ export function AppRulesEditor({ rules, onChange }: Props) {
                 </label>
               ) : (
                 <label className="field">
-                  <span>Ruta del ejecutable</span>
+                  <span>{isMac() ? "Ruta de la app" : "Ruta del ejecutable"}</span>
                   <input value={r.exePath} onChange={(e) => update(r.id, { exePath: e.target.value })} />
                 </label>
               )}
             </div>
 
-            {r.kind === "browser-zen" && (
+            {r.kind === "browser" && isMac() && (
+              <p className="tip subtle">
+                Este modo tiene <b>sus propias ventanas</b> en {r.label}: se abren con estas URLs y al volver al modo
+                reaparecen las mismas, con lo que hayas navegado. Las demás ventanas del navegador no se tocan.
+              </p>
+            )}
+
+            {hasWindowsPerUrl(r) && (r.kind === "browser-zen" || isMac()) && (
               <label className="switch">
                 <input type="checkbox" checked={!!r.separateWindows}
                        onChange={(e) => update(r.id, { separateWindows: e.target.checked })} />
@@ -160,7 +197,7 @@ export function AppRulesEditor({ rules, onChange }: Props) {
               </label>
             )}
 
-            {r.kind === "browser-zen" && r.separateWindows ? (
+            {hasWindowsPerUrl(r) && (r.kind === "browser-zen" || isMac()) && r.separateWindows ? (
               <div className="field">
                 <span>Ventanas <small>(una por URL, cada una con su posición)</small></span>
                 <div className="win-rows">
@@ -195,7 +232,7 @@ export function AppRulesEditor({ rules, onChange }: Props) {
             <div className="field">
               <span>Al salir de este modo</span>
               <div className="segmented" role="radiogroup">
-                {EXIT_OPTIONS.map((o) => (
+                {exitOptions(r).map((o) => (
                   <button key={o.value} role="radio" aria-checked={r.onExit === o.value} title={o.hint}
                           className={r.onExit === o.value ? "on" : ""} onClick={() => update(r.id, { onExit: o.value })}>
                     {o.label}
@@ -206,9 +243,12 @@ export function AppRulesEditor({ rules, onChange }: Props) {
 
             {r.kind === "browser-zen" && r.onExit === "close" && (
               <p className="tip">
-                En Zen, “Cerrar” <b>oculta</b> las ventanas de este modo (salen de la pantalla y de la barra de tareas) y
-                descarga sus pestañas, sin cerrarlas: cerrar una ventana de Zen borra los Essentials que tiene. Al volver
-                al modo reaparecen en su lugar.
+                {isMac()
+                  ? <>En Zen, “Cerrar” <b>minimiza</b> las ventanas de este modo y descarga sus pestañas, sin cerrarlas:
+                      cerrar una ventana de Zen borra los Essentials que tiene. Al volver al modo reaparecen en su lugar.</>
+                  : <>En Zen, “Cerrar” <b>oculta</b> las ventanas de este modo (salen de la pantalla y de la barra de tareas) y
+                      descarga sus pestañas, sin cerrarlas: cerrar una ventana de Zen borra los Essentials que tiene. Al volver
+                      al modo reaparecen en su lugar.</>}
               </p>
             )}
 

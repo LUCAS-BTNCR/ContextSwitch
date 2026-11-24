@@ -1,6 +1,6 @@
 pub mod chord;
-#[cfg(windows)]
-pub mod hook;
+/// El hook de teclado es de cada sistema (platform/windows/hook.rs, platform/mac/hook.rs).
+pub use crate::platform::hook;
 
 use crate::profiles::{Config, Modifier};
 use chord::{Binding, Chord, EngineConfig, MOD_ALT, MOD_CTRL, MOD_SHIFT, MOD_WIN};
@@ -37,7 +37,7 @@ mod tests {
     use super::*;
     use crate::profiles::Config;
 
-    fn cfg() -> Config { Config::default_config() } // trabajo = Ctrl+Shift+T, gaming = Ctrl+Shift+G
+    fn cfg() -> Config { Config::default_config() } // trabajo = …+T, gaming = …+G
 
     #[test]
     fn un_binding_por_modo_habilitado_con_su_indice() {
@@ -45,7 +45,8 @@ mod tests {
         assert_eq!(b.len(), 2);
         assert_eq!((b[0].profile, b[0].chord.vk), (0, 0x54));
         assert_eq!((b[1].profile, b[1].chord.vk), (1, 0x47));
-        assert_eq!(b[0].chord.mods, MOD_CTRL | MOD_SHIFT);
+        let default_mods = if cfg!(target_os = "macos") { MOD_CTRL | MOD_ALT } else { MOD_CTRL | MOD_SHIFT };
+        assert_eq!(b[0].chord.mods, default_mods);
     }
 
     #[test]

@@ -21,7 +21,11 @@ export const api = {
   pickerChoose: (id: string | null) => invoke<void>("picker_choose", { id }),
   pickerOpenSettings: () => invoke<void>("picker_open_settings"),
   appVersion: () => invoke<string>("app_version"),
-  /** Única conexión de red de la app, y solo al pedirla: GitHub Releases vía curl.exe. */
+  platformName: () => invoke<string>("platform_name"),
+  /** Mac: permiso de Accesibilidad (atajo y control de ventanas). En Windows siempre true. */
+  accessibilityOk: () => invoke<boolean>("accessibility_ok"),
+  openAccessibilitySettings: () => invoke<void>("open_accessibility_settings"),
+  /** Única conexión de red de la app, y solo al pedirla: GitHub Releases vía el curl del sistema. */
   checkUpdate: () => invoke<UpdateInfo>("check_update"),
   installUpdate: (url: string) => invoke<void>("install_update", { url }),
   /** Payload del backend: [id del perfil, avisos]. */

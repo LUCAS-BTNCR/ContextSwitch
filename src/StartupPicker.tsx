@@ -5,7 +5,7 @@ import type { Config } from "./types";
 import "./settings/settings.css";
 
 /**
- * Ventanita que aparece al iniciar con Windows: "¿Deseas aplicar algún contexto?".
+ * Ventanita que aparece al iniciar el sistema: "¿Deseas aplicar algún contexto?".
  * Elegir un modo lo activa; "No, gracias", Esc o cerrar la ventana = no hacer nada.
  */
 export function StartupPicker() {

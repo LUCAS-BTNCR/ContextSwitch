@@ -17,11 +17,11 @@
     5. Bug A: un profiles.json dañado se aparta (profiles.corrupt-*.json) y no se pisa.
 
 .EXAMPLE
-  powershell -ExecutionPolicy Bypass -File scripts\e2e.ps1
-  powershell -ExecutionPolicy Bypass -File scripts\e2e.ps1 -Exe src-tauri\target\release\contextswitch.exe
+  powershell -ExecutionPolicy Bypass -File src-tauri\src\platform\windows\e2e.ps1
+  powershell -ExecutionPolicy Bypass -File src-tauri\src\platform\windows\e2e.ps1 -Exe src-tauri\target\release\contextswitch.exe
 #>
 param(
-  [string]$Exe = (Join-Path $PSScriptRoot "..\src-tauri\target\release\contextswitch.exe")
+  [string]$Exe = (Join-Path $PSScriptRoot "..\..\..\target\release\contextswitch.exe")
 )
 $ErrorActionPreference = "Stop"
 

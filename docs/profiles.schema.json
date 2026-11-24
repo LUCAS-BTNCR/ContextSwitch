@@ -90,9 +90,9 @@
       "properties": {
         "id": { "type": "string" },
         "label": { "type": "string" },
-        "kind": { "enum": ["generic", "browser-zen", "mail", "chat"] },
+        "kind": { "enum": ["generic", "browser-zen", "browser", "mail", "chat"] },
         "exePath": { "type": "string" },
-        "processName": { "type": "string", "pattern": "\\.exe$" },
+        "processName": { "type": "string", "description": "Windows: nombre del .exe (zen.exe). Mac: nombre de la app (Google Chrome)." },
         "args": { "type": "array", "items": { "type": "string" } },
         "workspace": { "type": ["string", "null"], "description": "Nombre libre del Workspace/Perfil dentro de la app" },
         "container": { "type": ["string", "null"], "description": "Zen: contenedor por defecto de ese workspace (si falta, se usa 'workspace')" },

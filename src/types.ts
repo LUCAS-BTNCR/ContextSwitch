@@ -1,6 +1,7 @@
 // Espejo TS de profiles.rs / profiles.schema.json
 export type Modifier = "ctrl" | "shift" | "alt" | "win";
-export type AppKind = "generic" | "browser-zen" | "mail" | "chat";
+/** "browser": navegador sin workspaces (Chrome, Vivaldi, Firefox…): cada modo tiene sus ventanas. */
+export type AppKind = "generic" | "browser-zen" | "browser" | "mail" | "chat";
 export type EnterAction = "launch-or-focus" | "launch" | "none";
 export type ExitAction = "keep" | "minimize" | "close";
 
@@ -25,7 +26,7 @@ export interface AppRule {
   onEnter: EnterAction;
   onExit: ExitAction;
   unloadInactiveTabs?: boolean;
-  /** Zen: cada URL de `open` en su propia ventana. */
+  /** Zen y navegadores: cada URL de `open` en su propia ventana. */
   separateWindows?: boolean;
   /** Con separateWindows, placements[i] es la ventana de open[i]; si no, [0] es la ventana principal. */
   placements?: (Placement | null)[];
@@ -70,8 +71,9 @@ export interface Profile {
 export interface Settings {
   doubleTapWindowMs: number;
   swallowTrigger: boolean;
+  /** Iniciar con el sistema (Windows: al iniciar Windows; Mac: al iniciar sesión). */
   startWithWindows: boolean;
-  /** Al iniciar con Windows: preguntar qué contexto aplicar (true) o arrancar oculta (false). */
+  /** Al iniciar con el sistema: preguntar qué contexto aplicar (true) o arrancar oculta (false). */
   showStartupPicker?: boolean;
   showToastOnSwitch: boolean;
   activeProfileId?: string | null;

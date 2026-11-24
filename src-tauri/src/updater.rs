@@ -1,10 +1,12 @@
 //! Actualizaciones bajo demanda desde las Releases de GitHub.
 //!
 //! Solo se conecta cuando el usuario toca "Buscar actualizaciones": nunca en segundo plano.
-//! No hay cliente HTTP en la app: se usa el `curl.exe` que trae Windows (System32).
+//! No hay cliente HTTP en la app: se usa el `curl` del sistema (System32\curl.exe en
+//! Windows, /usr/bin/curl en Mac).
 
 use anyhow::{anyhow, bail, Context, Result};
 use serde::Serialize;
+#[cfg(windows)]
 use std::os::windows::process::CommandExt;
 use std::path::PathBuf;
 use std::process::Command;
@@ -12,8 +14,18 @@ use std::process::Command;
 const LATEST_API: &str = "https://api.github.com/repos/LUCAS-BTNCR/ContextSwitch/releases/latest";
 /// Solo se descargan instaladores de las Releases de este repo.
 const DOWNLOAD_PREFIX: &str = "https://github.com/LUCAS-BTNCR/ContextSwitch/releases/download/";
+#[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+#[cfg(windows)]
 const DETACHED_PROCESS: u32 = 0x0000_0008;
+
+/// Nombre del archivo de instalación de cada sistema en las Releases.
+#[cfg(windows)]
+const INSTALLER_SUFFIX: &str = "_x64-setup.exe";
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+const INSTALLER_SUFFIX: &str = "_aarch64.dmg";
+#[cfg(all(target_os = "macos", not(target_arch = "aarch64")))]
+const INSTALLER_SUFFIX: &str = "_x64.dmg";
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -21,7 +33,7 @@ pub struct UpdateInfo {
     pub current: String,
     pub latest: String,
     pub available: bool,
-    /// URL del instalador `*_x64-setup.exe` de la última release (si tiene).
+    /// URL del instalador de este sistema (`*_x64-setup.exe` / `*_aarch64.dmg`) de la última release.
     pub installer_url: Option<String>,
     pub notes: String,
 }
@@ -31,18 +43,20 @@ pub fn current_version() -> String {
     std::env::var("CONTEXTSWITCH_UPDATE_AS_VERSION").unwrap_or_else(|_| env!("CARGO_PKG_VERSION").to_string())
 }
 
+#[cfg(windows)]
 fn curl() -> PathBuf {
     let root = std::env::var_os("SystemRoot").map(PathBuf::from).unwrap_or_else(|| r"C:\Windows".into());
     root.join("System32").join("curl.exe")
 }
+#[cfg(not(windows))]
+fn curl() -> PathBuf { "/usr/bin/curl".into() }
 
 fn run_curl(args: &[&str]) -> Result<Vec<u8>> {
-    let out = Command::new(curl())
-        .args(["-sSfL", "--max-time", "120", "-H", "User-Agent: ContextSwitch-updater"])
-        .args(args)
-        .creation_flags(CREATE_NO_WINDOW)
-        .output()
-        .context("no se pudo ejecutar curl.exe")?;
+    let mut cmd = Command::new(curl());
+    cmd.args(["-sSfL", "--max-time", "120", "-H", "User-Agent: ContextSwitch-updater"]).args(args);
+    #[cfg(windows)]
+    cmd.creation_flags(CREATE_NO_WINDOW);
+    let out = cmd.output().context("no se pudo ejecutar curl")?;
     if !out.status.success() {
         let err = String::from_utf8_lossy(&out.stderr).trim().to_string();
         bail!("no se pudo conectar con GitHub{}", if err.is_empty() { String::new() } else { format!(": {err}") });
@@ -71,7 +85,7 @@ pub fn parse_release(json: &[u8], current: &str) -> Result<UpdateInfo> {
     let v: serde_json::Value = serde_json::from_slice(json).context("respuesta de GitHub inválida")?;
     let tag = v["tag_name"].as_str().ok_or_else(|| anyhow!("la release no tiene versión"))?;
     let installer_url = v["assets"].as_array().into_iter().flatten()
-        .filter(|a| a["name"].as_str().is_some_and(|n| n.ends_with("_x64-setup.exe")))
+        .filter(|a| a["name"].as_str().is_some_and(|n| n.ends_with(INSTALLER_SUFFIX)))
         .filter_map(|a| a["browser_download_url"].as_str())
         .find(|u| u.starts_with(DOWNLOAD_PREFIX))
         .map(String::from);
@@ -91,13 +105,38 @@ pub fn check() -> Result<UpdateInfo> {
 }
 
 /// Ejecutable instalado (instalador NSIS por usuario).
+#[cfg(windows)]
 fn installed_exe() -> PathBuf {
     let base = std::env::var_os("LOCALAPPDATA").map(PathBuf::from).unwrap_or_default();
     base.join("ContextSwitch").join("contextswitch.exe")
 }
 
+/// Mac: descarga la imagen .dmg y la abre (el Finder la monta y muestra la app para
+/// arrastrarla a Aplicaciones). La app sigue corriendo hasta que el usuario la reemplace.
+#[cfg(not(windows))]
+pub fn download_and_launch(url: &str) -> Result<()> {
+    if !url.starts_with(DOWNLOAD_PREFIX) || !url.ends_with(".dmg") {
+        bail!("URL de actualización no permitida");
+    }
+    let dir = std::env::temp_dir().join("ContextSwitch-update");
+    std::fs::create_dir_all(&dir)?;
+    let dmg = dir.join("ContextSwitch.dmg");
+    let _ = std::fs::remove_file(&dmg);
+    run_curl(&["-o", &dmg.to_string_lossy(), url])?;
+    let bytes = std::fs::read(&dmg).context("no se pudo leer la imagen descargada")?;
+    // Una .dmg termina con un bloque de 512 bytes que empieza con "koly".
+    if bytes.len() < 100_000 || !bytes[bytes.len() - 512..].starts_with(b"koly") {
+        let _ = std::fs::remove_file(&dmg);
+        bail!("el archivo descargado no es una imagen de disco válida");
+    }
+    let ok = Command::new("/usr/bin/open").arg(&dmg).status().map(|s| s.success()).unwrap_or(false);
+    if !ok { bail!("no se pudo abrir la imagen descargada"); }
+    Ok(())
+}
+
 /// Descarga el instalador y deja lanzado (desacoplado) "esperar → instalar en silencio →
 /// abrir la app". El llamador debe cerrar la app enseguida para liberar el exe.
+#[cfg(windows)]
 pub fn download_and_launch(url: &str) -> Result<()> {
     if !url.starts_with(DOWNLOAD_PREFIX) || !url.ends_with(".exe") {
         bail!("URL de actualización no permitida");
@@ -145,7 +184,9 @@ mod tests {
         "tag_name": "v0.5.0", "body": "Novedades",
         "assets": [
             {"name": "contextswitch_companion-0.3.2.xpi", "browser_download_url": "https://github.com/LUCAS-BTNCR/ContextSwitch/releases/download/v0.5.0/c.xpi"},
-            {"name": "ContextSwitch_0.5.0_x64-setup.exe", "browser_download_url": "https://github.com/LUCAS-BTNCR/ContextSwitch/releases/download/v0.5.0/ContextSwitch_0.5.0_x64-setup.exe"}
+            {"name": "ContextSwitch_0.5.0_x64-setup.exe", "browser_download_url": "https://github.com/LUCAS-BTNCR/ContextSwitch/releases/download/v0.5.0/ContextSwitch_0.5.0_x64-setup.exe"},
+            {"name": "ContextSwitch_0.5.0_aarch64.dmg", "browser_download_url": "https://github.com/LUCAS-BTNCR/ContextSwitch/releases/download/v0.5.0/ContextSwitch_0.5.0_aarch64.dmg"},
+            {"name": "ContextSwitch_0.5.0_x64.dmg", "browser_download_url": "https://github.com/LUCAS-BTNCR/ContextSwitch/releases/download/v0.5.0/ContextSwitch_0.5.0_x64.dmg"}
         ]}"#;
 
     #[test]
@@ -153,7 +194,7 @@ mod tests {
         let i = parse_release(RELEASE.as_bytes(), "0.4.0").unwrap();
         assert!(i.available);
         assert_eq!(i.latest, "0.5.0");
-        assert!(i.installer_url.unwrap().ends_with("ContextSwitch_0.5.0_x64-setup.exe"));
+        assert!(i.installer_url.unwrap().ends_with(&format!("ContextSwitch_0.5.0{INSTALLER_SUFFIX}")), "el instalador de ESTE sistema");
         assert_eq!(i.notes, "Novedades");
     }
 
@@ -164,7 +205,7 @@ mod tests {
 
     #[test]
     fn sin_instalador_o_de_otro_origen_no_se_ofrece() {
-        let r = r#"{"tag_name":"v9.0.0","assets":[{"name":"x_x64-setup.exe","browser_download_url":"https://evil.example/x_x64-setup.exe"}]}"#;
+        let r = format!(r#"{{"tag_name":"v9.0.0","assets":[{{"name":"x{INSTALLER_SUFFIX}","browser_download_url":"https://evil.example/x{INSTALLER_SUFFIX}"}}]}}"#);
         let i = parse_release(r.as_bytes(), "0.4.0").unwrap();
         assert!(!i.available);
         assert!(i.installer_url.is_none());
@@ -173,6 +214,7 @@ mod tests {
     #[test]
     fn rechaza_urls_ajenas() {
         assert!(download_and_launch("https://evil.example/ContextSwitch_x64-setup.exe").is_err());
+        assert!(download_and_launch("https://evil.example/ContextSwitch_aarch64.dmg").is_err());
     }
 
     /// Contra GitHub real: `cargo test -- --ignored updater`.
